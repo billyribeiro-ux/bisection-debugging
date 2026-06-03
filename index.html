@@ -1,0 +1,3214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bisection Debugging — A Principal Engineer's Curriculum</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-elev-2: #1c2230;
+    --border: #2a313c;
+    --fg: #e6edf3;
+    --fg-dim: #9ba6b3;
+    --fg-faint: #6b7480;
+    --accent: #7ee7ff;
+    --accent-2: #ffb86b;
+    --good: #56d364;
+    --bad: #ff7b72;
+    --warn: #f0c674;
+    --code-bg: #1e1e1e;
+    --shadow: 0 8px 24px rgba(0,0,0,0.4);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+  body { display: grid; grid-template-columns: 280px 1fr; grid-template-rows: 1fr 64px; min-height: 100vh; }
+
+  /* SIDEBAR */
+  aside#toc {
+    grid-row: 1 / 3;
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px 0;
+  }
+  aside#toc h1 {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 20px 8px;
+  }
+  aside#toc .subtitle {
+    font-size: 11px;
+    color: var(--fg-faint);
+    margin: 0 20px 18px;
+  }
+  aside#toc .part {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    padding: 14px 20px 6px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  aside#toc .part:first-of-type { border-top: none; margin-top: 0; }
+  aside#toc a {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 20px;
+    color: var(--fg-dim);
+    text-decoration: none;
+    font-size: 13px;
+    line-height: 1.35;
+    border-left: 2px solid transparent;
+  }
+  aside#toc a .num { color: var(--fg-faint); font-variant-numeric: tabular-nums; min-width: 22px; }
+  aside#toc a:hover { background: var(--bg-elev-2); color: var(--fg); }
+  aside#toc a.active { background: var(--bg-elev-2); color: var(--accent); border-left-color: var(--accent); }
+  aside#toc a.active .num { color: var(--accent); }
+
+  /* MAIN */
+  main#content {
+    grid-row: 1;
+    overflow-y: auto;
+    padding: 48px 60px 80px;
+  }
+  main#content .inner { max-width: 880px; margin: 0 auto; }
+  section.page { display: none; animation: fade .25s ease; }
+  section.page.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(126,231,255,0.08);
+    border: 1px solid rgba(126,231,255,0.25);
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+  }
+  h2.page-title { font-size: 32px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .lede { font-size: 17px; color: var(--fg-dim); margin: 0 0 28px; line-height: 1.55; }
+
+  section.page h3 {
+    font-size: 19px;
+    margin: 28px 0 10px;
+    color: var(--fg);
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+  }
+  section.page h4 {
+    font-size: 15px;
+    margin: 20px 0 8px;
+    color: var(--accent-2);
+    letter-spacing: 0.02em;
+  }
+  section.page p { font-size: 15px; line-height: 1.65; color: var(--fg); margin: 0 0 12px; }
+  section.page ul, section.page ol { font-size: 15px; line-height: 1.65; padding-left: 22px; margin: 0 0 14px; }
+  section.page li { margin-bottom: 6px; }
+  section.page strong { color: var(--accent-2); font-weight: 600; }
+  section.page em { color: var(--fg-dim); font-style: italic; }
+  section.page code:not(.no-style) {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(126,231,255,0.08);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(126,231,255,0.15);
+  }
+  section.page blockquote {
+    border-left: 3px solid var(--warn);
+    background: rgba(240,198,116,0.06);
+    margin: 16px 0;
+    padding: 12px 18px;
+    color: var(--fg);
+    font-size: 14px;
+    border-radius: 0 6px 6px 0;
+  }
+  section.page blockquote strong { color: var(--warn); }
+  .callout {
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin: 16px 0;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .callout.good { border-color: rgba(86,211,100,0.4); background: rgba(86,211,100,0.06); }
+  .callout.bad { border-color: rgba(255,123,114,0.4); background: rgba(255,123,114,0.06); }
+  .callout-title {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .callout.good .callout-title { color: var(--good); }
+  .callout.bad .callout-title { color: var(--bad); }
+
+  /* CODE BLOCK / MONACO */
+  .code-wrap {
+    position: relative;
+    margin: 16px 0 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--code-bg);
+    box-shadow: var(--shadow);
+  }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #252526;
+    padding: 6px 12px;
+    border-bottom: 1px solid #333;
+    font-size: 12px;
+    color: var(--fg-dim);
+    font-family: var(--font-mono);
+  }
+  .code-header .lang-tag { color: var(--accent); }
+  .code-header .copy-btn {
+    background: #3a3d41;
+    color: var(--fg);
+    border: 1px solid #555;
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    transition: all .15s ease;
+  }
+  .code-header .copy-btn:hover { background: #4d5158; }
+  .code-header .copy-btn.copied { background: var(--good); color: #0d1117; border-color: var(--good); }
+  .monaco-host { width: 100%; }
+
+  /* RAW pre fallback (before Monaco hydrates) */
+  pre.code {
+    margin: 0;
+    padding: 14px 16px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    color: #d4d4d4;
+    background: var(--code-bg);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* FOOTER */
+  footer#nav {
+    grid-row: 2;
+    grid-column: 2;
+    border-top: 1px solid var(--border);
+    background: var(--bg-elev);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+  footer#nav button {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: var(--font-sans);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all .15s ease;
+  }
+  footer#nav button:hover:not(:disabled) { background: var(--accent); color: #0d1117; border-color: var(--accent); }
+  footer#nav button:disabled { opacity: 0.35; cursor: not-allowed; }
+  footer#nav .page-indicator {
+    font-family: var(--font-mono);
+    color: var(--fg-dim);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  footer#nav .page-indicator strong { color: var(--accent); }
+
+  /* TABLE */
+  table.cmp {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  table.cmp th, table.cmp td { padding: 9px 12px; text-align: left; vertical-align: top; }
+  table.cmp th { background: var(--bg-elev-2); color: var(--accent); font-size: 12px; letter-spacing: 0.04em; }
+  table.cmp tr:nth-child(even) td { background: var(--bg-elev); }
+  table.cmp tr td { border-top: 1px solid var(--border); }
+
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto 1fr 56px; }
+    aside#toc { grid-row: 1; max-height: 200px; }
+    main#content { padding: 24px 18px 60px; }
+    footer#nav { grid-row: 3; grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+
+<aside id="toc">
+  <h1>Bisection Debugging</h1>
+  <p class="subtitle">A principal engineer's curriculum — simple → advanced</p>
+  <nav id="toc-list"></nav>
+</aside>
+
+<main id="content">
+  <div class="inner" id="page-host">
+    <!-- pages injected at runtime; raw markup also lives below as <template>s -->
+  </div>
+</main>
+
+<footer id="nav">
+  <button id="prev-btn" aria-label="Previous page">← Previous</button>
+  <div class="page-indicator">Page <strong id="cur-page">1</strong> / <span id="tot-page">22</span> &nbsp;·&nbsp; <span id="cur-title"></span></div>
+  <button id="next-btn" aria-label="Next page">Next →</button>
+</footer>
+
+<!-- ============================================================
+     PAGE CONTENT — each <template> becomes one curriculum page.
+     Code blocks are <pre class="code" data-lang="..."> and get
+     replaced by Monaco editors at runtime.
+     ============================================================ -->
+
+<template data-page-title="What Is Bisection Debugging?" data-part="I — Foundations">
+<span class="badge">Part I · Foundations</span>
+<h2 class="page-title">What Is Bisection Debugging?</h2>
+<p class="lede">Bisection debugging is the engineer's version of the "guess a number between 1 and 100" game. Instead of testing every suspect one by one, you cut the suspect list in half each round. With 1,024 suspects, you find the culprit in <strong>10 tests</strong> instead of up to 1,024. That's the entire idea — but the implications run deep.</p>
+
+<h3>The childhood game, reframed</h3>
+<p>Imagine your friend picks a number from 1 to 100. If you guess <em>linearly</em> — "1? 2? 3?" — you'll average 50 guesses. If you guess in the middle — "50? higher. 75? lower. 62? lower." — you'll always finish in about 7. That's <strong>O(log₂ n)</strong> versus <strong>O(n)</strong>. The math is so favorable that experienced engineers reach for bisection before almost any other technique when a bug is hiding inside a large set.</p>
+
+<h3>Why this matters in real software</h3>
+<p>Every test you run costs something:</p>
+<ul>
+  <li><strong>Time.</strong> A CI run can take 20 minutes. 1,000 linear runs is a month of wall-clock. 10 bisection runs is 3 hours.</li>
+  <li><strong>Money.</strong> CI minutes, cloud compute, and engineer salary all cost real dollars.</li>
+  <li><strong>Cognitive load.</strong> Every minute spent waiting is a minute you cannot focus on the actual bug.</li>
+</ul>
+<p>So we trade a tiny amount of <em>setup work</em> (a predicate script, a way to split the input) for a <em>massive</em> reduction in tests. That trade almost always pays off.</p>
+
+<h3>The three things you need</h3>
+<div class="callout">
+<div class="callout-title">The Bisection Triangle</div>
+<ol>
+  <li><strong>An ordered (or splittable) set</strong> — commits in history, files in a directory, items in a list, parameter values in a range.</li>
+  <li><strong>A predicate</strong> — a yes/no test you can run against any element or subset. "Does the build fail?" "Does the leak appear?" "Does the test time out?"</li>
+  <li><strong>The monotonic invariant</strong> — the predicate must flip from "good" to "bad" exactly once across the set. We'll spend the next page on this; it's where most bisection attempts go wrong.</li>
+</ol>
+</div>
+
+<h3>Where you'll see bisection in this course</h3>
+<p>We'll bisect across nine very different domains. The mental model is the same every time:</p>
+<table class="cmp">
+<tr><th>Domain</th><th>The "set"</th><th>The predicate</th></tr>
+<tr><td>Git history</td><td>Commits between v1.4 and HEAD</td><td>Does <code>pnpm test</code> pass?</td></tr>
+<tr><td>Source files</td><td>All <code>*.svelte</code> in <code>src/lib</code></td><td>Does <code>svelte-check</code> succeed?</td></tr>
+<tr><td>Components in memory</td><td>Mounted children of a page</td><td>Does retained heap grow?</td></tr>
+<tr><td>Dependencies</td><td>Entries in <code>package.json</code></td><td>Does the app boot?</td></tr>
+<tr><td>Tests</td><td>Files in your <code>vitest</code> suite</td><td>Does the suspect test still flake?</td></tr>
+<tr><td>Configuration</td><td>Keys in <code>tsconfig.json</code></td><td>Does the build succeed?</td></tr>
+<tr><td>Feature flags</td><td>The flag set in your control plane</td><td>Does the bug reproduce?</td></tr>
+<tr><td>Data rows</td><td>A CSV that crashes ingestion</td><td>Does the row import cleanly?</td></tr>
+<tr><td>Service versions</td><td>Image tags across a fleet</td><td>Does end-to-end work?</td></tr>
+</table>
+
+<h3>A first taste — by hand, on the napkin</h3>
+<p>Here is the smallest possible bisection script. It takes a list of files, runs a predicate, and narrows down to one culprit. We will rewrite this six different ways before the course is over.</p>
+
+<pre class="code" data-lang="shell" data-title="napkin-bisect.sh">#!/usr/bin/env bash
+# napkin-bisect.sh — the absolute simplest bisection.
+# Usage:  ./napkin-bisect.sh "svelte-check --filter {}" src/lib/**/*.svelte
+#
+# {} is replaced with the file being tested.
+
+predicate="$1"; shift
+files=("$@")
+
+lo=0; hi=$((${#files[@]} - 1))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  half=("${files[@]:lo:mid-lo+1}")
+  echo "Testing files [$lo..$mid] (${#half[@]} files)"
+  cmd="${predicate//\{\}/${half[*]}}"
+  if eval "$cmd" >/dev/null 2>&1; then
+    lo=$((mid + 1))   # this half is good → bad must be in upper half
+  else
+    hi=$mid           # this half is bad → keep narrowing
+  fi
+done
+echo "Culprit: ${files[$lo]}"
+</pre>
+
+<p>Don't worry if every line isn't clear yet — by Part VI you'll be able to write this from memory and explain every choice. For now, just notice: <em>each iteration halves the search space.</em></p>
+</template>
+
+<template data-page-title="The Bisection Invariant" data-part="I — Foundations">
+<span class="badge">Part I · Foundations</span>
+<h2 class="page-title">The Bisection Invariant — and Why Bisection Lies</h2>
+<p class="lede">Bisection works because of a single mathematical property: <strong>monotonicity</strong>. Without it, the whole technique gives you a confidently wrong answer. Senior engineers who get burned by bisection got burned here. Read this page twice.</p>
+
+<h3>What monotonicity means in plain English</h3>
+<p>"Monotonic" sounds intimidating; it isn't. It means: <em>as you walk through the set, the predicate flips from "good" to "bad" exactly once, and never flips back.</em> Like a light switch: off, off, off, off, <strong>ON</strong>, on, on, on. Never off-on-off-on.</p>
+<p>For git bisect, that means: every commit before the bad one is good; every commit at-or-after the bad one is bad. For file bisection: every subset that excludes the bad file is good; every subset that includes it is bad.</p>
+
+<h3>Three ways the invariant breaks (and how to repair it)</h3>
+
+<h4>1. Flakiness — the predicate is noisy</h4>
+<p>The test fails 30% of the time even on a good commit. Bisection sees the noise as a real signal and points at an innocent commit. <strong>Fix:</strong> wrap your predicate in a "best of N" loop.</p>
+
+<pre class="code" data-lang="shell" data-title="flake-resistant-predicate.sh">#!/usr/bin/env bash
+# flake-resistant-predicate.sh
+# Runs the test up to 5 times. Calls it "good" only if it passes ≥4 times.
+# Exit codes follow `git bisect run` convention:
+#   0   = good
+#   1   = bad
+#   125 = skip (cannot determine — e.g. build itself broken)
+set -uo pipefail
+
+RUNS=5
+THRESHOLD=4
+passes=0
+
+# Refuse to judge if the build is broken — that's a "skip", not a "bad".
+if ! pnpm install --frozen-lockfile >/dev/null 2>&1; then exit 125; fi
+if ! pnpm build >/dev/null 2>&1; then exit 125; fi
+
+for i in $(seq 1 "$RUNS"); do
+  if pnpm test --run --bail 1 >/dev/null 2>&1; then
+    passes=$((passes + 1))
+  fi
+done
+
+if (( passes >= THRESHOLD )); then exit 0; else exit 1; fi
+</pre>
+
+<h4>2. Non-determinism — the environment drifts</h4>
+<p>The bug only appears with a specific Node version, OS, or system clock. Halfway through bisection, <code>nvm</code> picks up a different Node and your predicate changes meaning. <strong>Fix:</strong> pin everything explicitly inside the predicate.</p>
+
+<pre class="code" data-lang="shell" data-title="hermetic-predicate.sh">#!/usr/bin/env bash
+# hermetic-predicate.sh — pin every variable that could shift under us.
+set -euo pipefail
+
+# Pin Node, pnpm, locale, timezone, random seed.
+export NODE_VERSION="20.18.0"
+export PNPM_VERSION="9.12.0"
+export LC_ALL=C.UTF-8
+export TZ=UTC
+export NODE_OPTIONS="--no-warnings"
+export VITEST_SEED=42
+
+# Use a deterministic ordering for tests.
+export VITEST_SEQUENCE_SHUFFLE=false
+
+# Honor .nvmrc only if it matches the pin; otherwise fail loudly.
+if command -v nvm >/dev/null 2>&1; then
+  nvm use "$NODE_VERSION" >/dev/null 2>&1 || { echo "Wrong Node"; exit 125; }
+fi
+
+# Clean every byproduct cache — caches lie under bisection.
+rm -rf node_modules/.vite node_modules/.cache .svelte-kit dist
+
+pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+pnpm test --run
+</pre>
+
+<h4>3. Multiple causes — the bug isn't a single switch</h4>
+<p>Two unrelated commits together cause the failure; neither alone reproduces it. Bisection will land on <em>one</em> of them and tell you it's the culprit. It's not lying — it's telling you the smallest commit that, given everything else after it, produces the failure. <strong>Fix:</strong> when you find the "bad" commit, confirm by cherry-picking it onto a known good base and checking the bug still reproduces. If it doesn't, you have a multi-cause bug — split it.</p>
+
+<h3>The cardinal rule</h3>
+<blockquote><strong>Before you bisect anything, prove the predicate is stable.</strong> Run it 3 times on a known-good state. Run it 3 times on a known-bad state. If both runs agree with themselves, you're safe to bisect. If they don't, fix the predicate first, then bisect. Skipping this step is the #1 way principal engineers waste a Friday.</blockquote>
+</template>
+
+<template data-page-title="Manual Bisection — The Napkin Method" data-part="I — Foundations">
+<span class="badge">Part I · Foundations</span>
+<h2 class="page-title">Manual Bisection — The Napkin Method</h2>
+<p class="lede">Before automating, you should be able to bisect with a piece of paper and a clear head. This page shows the technique by hand so the automation later feels obvious instead of magical.</p>
+
+<h3>A worked example: 1,024 files, 10 tests</h3>
+<p>You broke <code>svelte-check</code>. You don't know which file. You have 1,024 <code>.svelte</code> files. You could check them one at a time (linear), or:</p>
+<ol>
+  <li><strong>Round 1.</strong> Move files 1–512 out of the project. Run <code>svelte-check</code>. Pass? The bad file is in 1–512. Fail? It's in 513–1,024. Move them back.</li>
+  <li><strong>Round 2.</strong> Take the suspect half and split it again — 256 files moved out. Test.</li>
+  <li><strong>Round 3.</strong> 128 files.</li>
+  <li>… <strong>Round 10.</strong> 1 file. That's your culprit.</li>
+</ol>
+<p>Ten tests instead of up to 1,024. Each round costs you one <code>svelte-check</code> run and a few seconds of file shuffling.</p>
+
+<h3>The mental model: <code>lo</code>, <code>hi</code>, <code>mid</code></h3>
+<p>Every bisection has three pointers. Memorize them:</p>
+<ul>
+  <li><code>lo</code> — the index of the first <em>possibly-bad</em> element.</li>
+  <li><code>hi</code> — the index of the last <em>possibly-bad</em> element.</li>
+  <li><code>mid</code> — <code>(lo + hi) / 2</code>, the element you'll test this round.</li>
+</ul>
+<p>After each test, you either move <code>lo</code> up to <code>mid + 1</code> ("the bad one is above mid") or move <code>hi</code> down to <code>mid</code> ("the bad one is at or below mid"). You stop when <code>lo == hi</code>. That index is your answer.</p>
+
+<h3>A reusable manual log sheet</h3>
+<p>When bisecting by hand — especially during a stressful incident — write the table. It prevents the most common mistake: forgetting whether a tested subset was good or bad.</p>
+
+<pre class="code" data-lang="markdown" data-title="bisection-log.md"># Bisection log: SvelteCheck failing after main merge
+Date: 2026-06-03  Engineer: you  Predicate: `pnpm exec svelte-check`
+
+Initial suspect range: src/lib/**/*.svelte → 1024 files (sorted alphabetically)
+
+| Round | lo   | hi   | mid  | tested subset    | result | new lo | new hi |
+|------:|-----:|-----:|-----:|------------------|:------:|-------:|-------:|
+| 1     |    0 | 1023 |  511 | files[0..511]    | BAD    |      0 |    511 |
+| 2     |    0 |  511 |  255 | files[0..255]    | GOOD   |    256 |    511 |
+| 3     |  256 |  511 |  383 | files[256..383]  | BAD    |    256 |    383 |
+| 4     |  256 |  383 |  319 | files[256..319]  | GOOD   |    320 |    383 |
+| 5     |  320 |  383 |  351 | files[320..351]  | BAD    |    320 |    351 |
+| 6     |  320 |  351 |  335 | files[320..335]  | BAD    |    320 |    335 |
+| 7     |  320 |  335 |  327 | files[320..327]  | GOOD   |    328 |    335 |
+| 8     |  328 |  335 |  331 | files[328..331]  | BAD    |    328 |    331 |
+| 9     |  328 |  331 |  329 | files[328..329]  | GOOD   |    330 |    331 |
+| 10    |  330 |  331 |  330 | files[330..330]  | BAD    |    330 |    330 |
+
+→ Culprit: files[330] = src/lib/components/data/HeavyChart.svelte
+</pre>
+
+<h3>The "split the suspect set" script</h3>
+<p>To actually move files in/out by hand, this helper does it deterministically — and is reversible. Move-then-test-then-move-back avoids the most common foot-gun: leaving the repo in a half-modified state and forgetting which.</p>
+
+<pre class="code" data-lang="shell" data-title="halve-and-test.sh">#!/usr/bin/env bash
+# halve-and-test.sh — interactively halve a suspect file list.
+# Moves files into .bisect-stash/, runs your predicate, restores on exit.
+# Usage:  ./halve-and-test.sh 'pnpm exec svelte-check' src/lib/**/*.svelte
+set -euo pipefail
+
+PREDICATE="$1"; shift
+ALL=("$@")
+STASH=".bisect-stash"
+mkdir -p "$STASH"
+
+restore() {
+  echo "Restoring stashed files…"
+  if [ -d "$STASH" ]; then
+    find "$STASH" -type f | while read -r f; do
+      mv "$f" "${f#$STASH/}"
+    done
+    rm -rf "$STASH"
+  fi
+}
+trap restore EXIT INT TERM
+
+lo=0; hi=$(( ${#ALL[@]} - 1 ))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  echo
+  echo "── Round: lo=$lo hi=$hi mid=$mid (testing lower half [lo..mid]) ──"
+
+  # Stash the UPPER half so only [lo..mid] remain under test.
+  for (( i = mid + 1; i <= hi; i++ )); do
+    f="${ALL[$i]}"
+    mkdir -p "$STASH/$(dirname "$f")"
+    mv "$f" "$STASH/$f"
+  done
+
+  if eval "$PREDICATE" >/dev/null 2>&1; then
+    echo "  → lower half GOOD; bad file is in upper half"
+    # Restore upper, stash lower for next iteration.
+    find "$STASH" -type f | while read -r f; do mv "$f" "${f#$STASH/}"; done
+    lo=$((mid + 1))
+  else
+    echo "  → lower half BAD; narrowing"
+    find "$STASH" -type f | while read -r f; do mv "$f" "${f#$STASH/}"; done
+    hi=$mid
+  fi
+done
+
+echo
+echo "═══════════════════════════════════════════"
+echo "Culprit: ${ALL[$lo]}"
+echo "═══════════════════════════════════════════"
+</pre>
+
+<p>Note the <code>trap restore EXIT INT TERM</code> line. <strong>Always</strong> guarantee restoration. Bisection scripts crash. Networks drop. Cats walk on keyboards. Without a restore guarantee, you leave the repository in a broken state — far worse than the original bug.</p>
+</template>
+
+<template data-page-title="git bisect Basics" data-part="II — Git Bisect">
+<span class="badge">Part II · Git Bisect</span>
+<h2 class="page-title">git bisect — The Canonical Tool</h2>
+<p class="lede"><code>git bisect</code> is the bisection technique built into git itself. It's been there since 2007 and it remains, in 2026, the single most leveraged debugging command most engineers never use. By the end of this page you'll be running it confidently.</p>
+
+<h3>The five commands you actually need</h3>
+<table class="cmp">
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>git bisect start</code></td><td>Begins a bisection session. Tells git: "I'm hunting for the commit that introduced something."</td></tr>
+<tr><td><code>git bisect bad &lt;ref&gt;</code></td><td>Marks a commit (default: HEAD) as <em>bad</em> — the bug is present here.</td></tr>
+<tr><td><code>git bisect good &lt;ref&gt;</code></td><td>Marks a commit as <em>good</em> — the bug was not present.</td></tr>
+<tr><td><code>git bisect reset</code></td><td>Ends the session and returns you to your original branch.</td></tr>
+<tr><td><code>git bisect run &lt;cmd&gt;</code></td><td>Automates the loop. We cover this in detail on the next page.</td></tr>
+</table>
+
+<h3>A real session, narrated</h3>
+<p>You shipped v2.4 last week. Today, login is broken. You know v2.3 worked. Somewhere in the 60 commits between them is the bad one. Here's the entire session:</p>
+
+<pre class="code" data-lang="shell" data-title="manual-git-bisect.sh"># 1. Start the session.
+git bisect start
+
+# 2. Tell git the current state is bad.
+git bisect bad HEAD
+
+# 3. Tell git which earlier commit was known good.
+git bisect good v2.3
+
+# Git replies with something like:
+#   Bisecting: 30 revisions left to test after this (roughly 5 steps)
+#   [a1b2c3d] Refactor session store
+# It has checked out the middle commit and is waiting for you.
+
+# 4. Test the checked-out commit. Manually run login. Did it work?
+#    If yes:
+git bisect good
+#    If no:
+git bisect bad
+#    Git checks out the next midpoint and repeats.
+
+# 5. Repeat steps 3–4 until git tells you:
+#   a1b2c3d is the first bad commit
+#   commit a1b2c3d
+#   Author: someone
+#   Date:   Tue May 27 14:02:31 2026 +0000
+#       Refactor session store to use signed cookies
+
+# 6. End the session and go back to your branch.
+git bisect reset
+</pre>
+
+<h3>What git is actually doing under the hood</h3>
+<p>This is the kind of detail that separates engineers who <em>use</em> the tool from engineers who <em>own</em> the technique:</p>
+<ul>
+  <li>Git keeps two refs: <code>refs/bisect/bad</code> and <code>refs/bisect/good-&lt;sha&gt;</code> (one per good commit).</li>
+  <li>It computes the set of commits reachable from <code>bad</code> but not from any <code>good</code>. That's your search space.</li>
+  <li>It picks the commit with the most-balanced descendant/ancestor split. For a linear history this is the midpoint; for branchy history it's a graph-aware "best bisect" using a polynomial described in <code>git-bisect-lk2009.txt</code>.</li>
+  <li>It detaches HEAD to that commit. Your working tree is now at the suspect.</li>
+  <li>It writes <code>BISECT_LOG</code> with everything that happened. You can resume with <code>git bisect replay</code>.</li>
+</ul>
+
+<h3>Three commands you'll need eventually</h3>
+<pre class="code" data-lang="shell" data-title="git-bisect-extras.sh"># Skip the current commit (build broken, can't decide).
+git bisect skip
+
+# Save the bisection log for later (e.g. resume after a crash, or for review).
+git bisect log > /tmp/bisect.log
+git bisect reset                 # end session
+# Later:
+git bisect start
+git bisect replay /tmp/bisect.log
+
+# Visualize the remaining search space.
+git bisect visualize             # uses gitk if installed
+# or, simpler:
+git bisect view --stat
+</pre>
+
+<h3>The shortcut form</h3>
+<p>The verbose form above is great for learning. In practice you'll use this one-liner:</p>
+<pre class="code" data-lang="shell" data-title="git-bisect-oneline.sh"># Start, bad, and good in a single command.
+git bisect start HEAD v2.3
+# (positional: <bad> <good...>; you can pass multiple goods)
+</pre>
+</template>
+
+<template data-page-title="Automated git bisect run" data-part="II — Git Bisect">
+<span class="badge">Part II · Git Bisect</span>
+<h2 class="page-title">Automating with <code class="no-style">git bisect run</code></h2>
+<p class="lede">Manual bisection is great for learning. In real life you'll write a script and walk away. <code>git bisect run</code> drives the whole loop for you — it can find a needle in 300 commits while you make coffee.</p>
+
+<h3>The contract: exit codes are the API</h3>
+<p><code>git bisect run</code> calls your script at each midpoint. Your script's <em>exit code</em> is the only thing that matters:</p>
+<table class="cmp">
+<tr><th>Exit</th><th>Meaning</th><th>When to return it</th></tr>
+<tr><td><code>0</code></td><td>good</td><td>Bug not present. Tests pass.</td></tr>
+<tr><td><code>1–124, 126, 127</code></td><td>bad</td><td>Bug present. Tests fail.</td></tr>
+<tr><td><code>125</code></td><td>skip</td><td>Cannot tell — build broken, dependencies won't install, environment problem. Git will pick a neighboring commit.</td></tr>
+<tr><td><code>128+</code></td><td>abort</td><td>Fatal error. Git stops the bisection entirely.</td></tr>
+</table>
+
+<h3>A production-quality predicate</h3>
+<p>Here is the script I actually drop into projects. It handles every corner: hermetic install, build/test separation, retries for flakes, and clean exit codes.</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-predicate.sh">#!/usr/bin/env bash
+# bisect-predicate.sh — generic predicate for `git bisect run`.
+#
+# WHAT TO EDIT:  the THREE variables below + the SUSPECT_TEST.
+# WHY EXIT 125: build/install failure isn't the bug; it's an environment problem.
+#               Skipping lets bisection continue around the broken commits.
+# USAGE:
+#   git bisect start HEAD v2.3
+#   git bisect run ./bisect-predicate.sh
+
+set -uo pipefail
+
+INSTALL_CMD="pnpm install --frozen-lockfile --prefer-offline"
+BUILD_CMD="pnpm build"
+SUSPECT_TEST="pnpm vitest run tests/auth/login.test.ts"
+FLAKE_RETRIES=3            # run the suspect test N times before declaring bad
+
+# 1) Reset known-dirty caches that survive checkouts.
+rm -rf node_modules/.vite .svelte-kit .turbo dist 2>/dev/null || true
+
+# 2) Hermetic install. If the lockfile or registry rejects this commit, SKIP.
+if ! $INSTALL_CMD >/tmp/bisect-install.log 2>&1; then
+  echo "::skip:: install failed at $(git rev-parse --short HEAD)"
+  exit 125
+fi
+
+# 3) Build. Broken build isn't necessarily the bug — but it might be.
+#    If the bug you're hunting is "the build broke", change exit 125 → exit 1 here.
+if ! $BUILD_CMD >/tmp/bisect-build.log 2>&1; then
+  echo "::skip:: build failed at $(git rev-parse --short HEAD)"
+  exit 125
+fi
+
+# 4) Run the suspect test multiple times, declare bad only on a clear majority.
+fails=0
+for i in $(seq 1 "$FLAKE_RETRIES"); do
+  if ! $SUSPECT_TEST >/tmp/bisect-test.$i.log 2>&1; then
+    fails=$((fails + 1))
+  fi
+done
+
+if (( fails > FLAKE_RETRIES / 2 )); then
+  echo "::bad:: $(git rev-parse --short HEAD) failed $fails/$FLAKE_RETRIES"
+  exit 1
+fi
+
+echo "::good:: $(git rev-parse --short HEAD)"
+exit 0
+</pre>
+
+<h3>Driving it</h3>
+<pre class="code" data-lang="shell" data-title="drive-bisect.sh">#!/usr/bin/env bash
+# drive-bisect.sh — end-to-end automated bisection between two refs.
+set -euo pipefail
+
+BAD="${1:-HEAD}"
+GOOD="${2:?usage: drive-bisect.sh <bad-ref> <good-ref>}"
+PREDICATE="${3:-./bisect-predicate.sh}"
+
+chmod +x "$PREDICATE"
+
+git bisect start
+git bisect bad "$BAD"
+git bisect good "$GOOD"
+git bisect run "$PREDICATE" | tee /tmp/bisect-output.log
+
+# Whatever happened, leave the repo clean.
+git bisect log > /tmp/bisect-history.log
+git bisect reset
+
+# Surface the verdict.
+grep -E "is the first bad commit" /tmp/bisect-output.log || \
+  echo "Bisection inconclusive — check /tmp/bisect-output.log"
+</pre>
+
+<h3>Reading the output</h3>
+<p>At the end, git prints something like:</p>
+<pre class="code" data-lang="shell" data-title="bisect-output.txt">a1b2c3d4e5f6 is the first bad commit
+commit a1b2c3d4e5f6
+Author: jordan@example.com
+Date:   Tue May 27 14:02:31 2026 +0000
+
+    refactor: move session decryption to edge middleware
+
+ src/lib/server/session.ts | 42 +++++++++++++-----------
+ src/hooks.server.ts       | 18 ++++++++--
+ 2 files changed, 41 insertions(+), 19 deletions(-)
+
+bisect found first bad commit
+</pre>
+
+<p>That's it — the commit, the author, the files, ready for your code review. From here you either revert it, fix it forward, or have a precise conversation with the author about what they intended.</p>
+</template>
+
+<template data-page-title="Skips, Flakes, Merge Commits" data-part="II — Git Bisect">
+<span class="badge">Part II · Git Bisect</span>
+<h2 class="page-title">Skips, Flakes, and the Treacherous Merge Commit</h2>
+<p class="lede">In a clean linear history, <code>git bisect run</code> is paradise. In a real repository — with squashes, reverts, force-pushes, and merge commits from upstream — it can get strange. This page is the survival guide.</p>
+
+<h3>Skipping intelligently</h3>
+<p>When your predicate returns 125, git tries the neighboring commits. But what if a whole <em>range</em> is broken (a botched merge that took 5 commits to fix forward)? You can pre-skip them:</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-skip-range.sh"># Skip a known-broken range so bisection avoids it.
+git bisect skip $(git rev-list abc123^..def456)
+
+# Or skip the merges from a noisy upstream branch.
+git bisect skip $(git rev-list --merges --first-parent HEAD~50..HEAD)
+</pre>
+
+<h3>The <code>--first-parent</code> trick</h3>
+<p>If your team uses merge commits, the linear history of <code>main</code> hides hundreds of feature-branch commits. Most of the time you want bisection to step through <em>merges into main</em>, not into the internals of each PR.</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-first-parent.sh"># Bisect only along the first-parent chain of main.
+# This treats each PR merge as a single unit instead of descending into it.
+git bisect start --first-parent
+git bisect bad HEAD
+git bisect good v2.3
+git bisect run ./bisect-predicate.sh
+</pre>
+
+<p>Trade-off: you'll identify the offending <em>PR</em>, not the offending commit-within-the-PR. That's usually what you want anyway; PR-level granularity matches how you do code review.</p>
+
+<h3>Handling flakes mid-bisection</h3>
+<p>What if you discover a flake only halfway through? Don't restart — you can edit the verdict:</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-fix-mistake.sh"># I told git this commit was good; now I think it was bad. Fix the log.
+git bisect log > /tmp/bisect-log
+
+# Edit /tmp/bisect-log in your editor. Change `good abc123` to `bad abc123`,
+# or delete the line entirely if you can't tell.
+
+git bisect reset
+git bisect replay /tmp/bisect-log
+# Bisection resumes with the corrected history.
+</pre>
+
+<h3>The "good-after-bad" anomaly</h3>
+<p>Sometimes you'll see git report:</p>
+<pre class="code" data-lang="shell" data-title="bisect-anomaly.txt">$ git bisect bad
+Bisecting: 3 revisions left to test after this
+running ./predicate
+::good:: f3a2b1c
+Bisecting: ...
+::bad:: a4d5e6f
+::good:: 9c8b7a6     # ← but 9c8b7a6 is AFTER a4d5e6f!
+</pre>
+<p>This means your invariant is broken. The predicate is either flaky or non-monotonic. Stop. Don't trust the answer. Run the predicate 5 times against a single commit and see whether it answers consistently. If not, fix the predicate. If yes, you have a multi-cause bug.</p>
+
+<h3>Resumable sessions across machines</h3>
+<p>Long bisections (hundreds of slow commits) sometimes outlive your laptop session. Save the log and resume anywhere:</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-portable.sh"># Save current state.
+git bisect log > bisect-state.log
+git bisect reset
+
+# On another machine (after cloning the same repo):
+git bisect start
+git bisect replay bisect-state.log
+# Now continue from where you left off.
+</pre>
+
+<h3>The terms vocabulary</h3>
+<p>If your codebase uses "broken" / "working" instead of "bad" / "good", teach git the synonyms — your muscle memory will thank you:</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-terms.sh">git bisect start --term-old=working --term-new=broken
+git bisect broken           # equivalent to `bad`
+git bisect working v2.3     # equivalent to `good v2.3`
+
+# Or for performance regressions:
+git bisect start --term-old=fast --term-new=slow
+</pre>
+</template>
+
+<template data-page-title="Rebases, Squashes, and Hidden History" data-part="II — Git Bisect">
+<span class="badge">Part II · Git Bisect</span>
+<h2 class="page-title">Bisecting Across Rebases and Squash-Merges</h2>
+<p class="lede">If your team squash-merges every PR, bisection lands on a single 4,000-line commit and says "good luck." This page shows how to <em>continue bisecting inside</em> that squashed PR — and how to survive force-pushes that rewrote the history you were trying to bisect.</p>
+
+<h3>The squash-merge problem</h3>
+<p>You bisect from v2.4 → v2.3 and land on this:</p>
+<pre class="code" data-lang="shell" data-title="squash-result.txt">d4e5f6a is the first bad commit
+commit d4e5f6a
+Author: dev@example.com
+    feat: rewrite the payment pipeline (#1284)
+ 42 files changed, 3812 insertions(+), 1204 deletions(-)
+</pre>
+<p>Now you "know" the bad commit, but it contains a month of work. The actual bug is hiding in one of the <em>original</em> branch commits that got squashed. The fix:</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-squashed-pr.sh">#!/usr/bin/env bash
+# bisect-squashed-pr.sh — bisect inside a squashed PR by replaying its branch.
+set -euo pipefail
+
+PR_NUMBER="${1:?usage: bisect-squashed-pr.sh <pr-number>}"
+SQUASH_COMMIT="${2:?<squash-commit-sha>}"
+
+# 1) Most providers (GitHub, GitLab) keep the original PR branch reachable via
+#    a special ref. For GitHub:  refs/pull/<n>/head
+git fetch origin "refs/pull/$PR_NUMBER/head:bisect-pr-$PR_NUMBER"
+
+PR_TIP="bisect-pr-$PR_NUMBER"
+PR_BASE="$(git merge-base "$PR_TIP" "$SQUASH_COMMIT^")"
+
+echo "PR branch tip: $PR_TIP"
+echo "PR branch base: $PR_BASE"
+
+# 2) Cherry-pick the PR onto a known-good base so bisection has a linear history.
+git checkout -b bisect-replay "$PR_BASE"
+git cherry-pick "$PR_BASE..$PR_TIP" || {
+  echo "Cherry-pick conflicts — resolve and run 'git cherry-pick --continue'"
+  exit 1
+}
+
+# 3) Now bisect inside the cherry-picked range.
+git bisect start
+git bisect bad HEAD            # bug present after the whole PR
+git bisect good "$PR_BASE"     # bug absent before the PR
+git bisect run ./bisect-predicate.sh
+
+git bisect reset
+git checkout -
+git branch -D bisect-replay bisect-pr-$PR_NUMBER
+</pre>
+
+<h3>Surviving force-pushes</h3>
+<p>You started bisecting against <code>origin/main</code> at SHA <code>a1b2c3d</code>. Halfway through, someone force-pushed and <code>a1b2c3d</code> no longer exists on the remote. Your local commits are detached but intact — until <code>git gc</code> sweeps them.</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-survive-force-push.sh"># Pin the bisection range to objects in your local object database so they
+# can't be garbage-collected mid-bisection.
+git update-ref refs/bisect-pin/bad   $(git rev-parse HEAD)
+git update-ref refs/bisect-pin/good  v2.3
+
+# Now if `origin/main` rotates under you, your pins survive.
+# Reference them by the pin ref:
+git bisect start refs/bisect-pin/bad refs/bisect-pin/good
+
+# When done:
+git update-ref -d refs/bisect-pin/bad
+git update-ref -d refs/bisect-pin/good
+</pre>
+
+<h3>Reflogs: your last line of defense</h3>
+<p>If everything goes wrong and you can't find the bad commit anymore:</p>
+<pre class="code" data-lang="shell" data-title="bisect-reflog-rescue.sh"># Every checkout git has done during this session is in the reflog.
+git reflog --date=iso | grep -E "checkout|bisect" | head -40
+
+# Recover a specific SHA you saw earlier in bisection:
+git checkout HEAD@{42}
+# or
+git checkout abc1234
+
+# Pin it before it expires (default expiry: 90 days for unreachable objects).
+git update-ref refs/recovered/possibly-bad HEAD
+</pre>
+
+<h3>A team-wide best practice</h3>
+<div class="callout good">
+<div class="callout-title">Recommendation</div>
+<p>Keep <em>merge commits</em> on <code>main</code> and let GitHub/GitLab also retain PR head refs (<code>refs/pull/N/head</code> on GitHub). Then <code>--first-parent</code> bisection finds the PR, and the cherry-pick-and-bisect technique finds the line. Squash-only workflows trade developer convenience for incident-response speed; pay attention to that trade.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Svelte Files" data-part="III — File & Module">
+<span class="badge">Part III · File & Module Bisection</span>
+<h2 class="page-title">Bisecting Files in a SvelteKit Project</h2>
+<p class="lede">This is the exact problem you asked about: a <code>svelte-check</code> error somewhere in a 500-file project, and the obvious linear-scan script. We're going to turn it into a logarithmic bisector — and a real one, with restoration, parallelization, and resumability.</p>
+
+<h3>Why the linear scan in your original snippet is wrong</h3>
+<p>The script you pasted is fine for 10 files. For 500 files it runs <code>svelte-check --filter</code> 500 times. At ~3 seconds per invocation (warm), that's 25 minutes. At ~15 seconds per invocation (cold, large project), that's two hours.</p>
+<p>A binary-halving scan finds the same file in <strong>9 invocations</strong>. At 15 seconds each: 2 minutes 15 seconds. A 50× speedup for ten extra lines of shell.</p>
+
+<h3>The binary-halving leak finder</h3>
+
+<pre class="code" data-lang="shell" data-title="find-leak-binary.sh">#!/usr/bin/env bash
+# find-leak-binary.sh
+# Binary-halves a set of files to find the one that breaks `svelte-check`.
+# Works on any check command that accepts a file list, not just svelte-check.
+#
+# WHY THIS WORKS:
+#   svelte-check (and tsc, eslint, biome) accept multiple files at once.
+#   If we hand it half the project and it passes, the bad file is in the other half.
+#   Recurse. log₂(N) invocations instead of N.
+#
+# USAGE:
+#   ./find-leak-binary.sh "pnpm exec svelte-check --filter" "src/lib/**/*.svelte"
+#   ./find-leak-binary.sh "pnpm exec tsc --noEmit"          "src/**/*.ts"
+#
+# OUTPUT:
+#   The exact file that, in isolation, fails the predicate.
+#
+set -euo pipefail
+shopt -s globstar nullglob
+
+CHECK_CMD="${1:?usage: $0 \"<check-cmd>\" \"<glob>\"}"
+GLOB="${2:?missing glob}"
+
+# Expand glob → array. Sorted for deterministic, resumable runs.
+mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+N="${#FILES[@]}"
+echo "Bisecting $N files with: $CHECK_CMD"
+
+# Sanity check: the FULL set must actually fail. Otherwise nothing to find.
+if $CHECK_CMD "${FILES[@]}" >/dev/null 2>&1; then
+  echo "Predicate passes on full set — nothing to bisect."
+  exit 0
+fi
+
+lo=0
+hi=$((N - 1))
+round=0
+
+while (( lo < hi )); do
+  round=$((round + 1))
+  mid=$(( (lo + hi) / 2 ))
+  lower=("${FILES[@]:lo:mid-lo+1}")
+
+  printf "round %2d: testing %d files (indices %d..%d)\n" \
+    "$round" "${#lower[@]}" "$lo" "$mid"
+
+  if $CHECK_CMD "${lower[@]}" >/dev/null 2>&1; then
+    # Lower half is clean → culprit is in upper half.
+    lo=$((mid + 1))
+  else
+    # Lower half fails → culprit is in lower half.
+    hi=$mid
+  fi
+done
+
+echo
+echo "═══════════════════════════════════════════"
+echo "Culprit file: ${FILES[$lo]}"
+echo "═══════════════════════════════════════════"
+
+# Show the actual error for the culprit.
+echo
+echo "Reproducing error:"
+$CHECK_CMD "${FILES[$lo]}" || true
+</pre>
+
+<h3>When the predicate doesn't accept multiple files</h3>
+<p>Some checkers (older eslint plugins, custom scripts) only accept one file at a time. You can still halve by <em>moving</em> the other half out of the project — the trick from the Napkin Method page, made robust:</p>
+
+<pre class="code" data-lang="shell" data-title="find-leak-by-stashing.sh">#!/usr/bin/env bash
+# find-leak-by-stashing.sh
+# Binary-halves by moving non-suspect files into .bisect-stash/, then running
+# a project-wide predicate (e.g. `pnpm build`).
+# Guarantees full restoration even on Ctrl-C, error, or kill.
+set -euo pipefail
+shopt -s globstar nullglob
+
+PREDICATE="${1:?usage: $0 <predicate-cmd> <glob>}"
+GLOB="${2:?missing glob}"
+STASH="$(mktemp -d -p . .bisect-stash-XXXXXX)"
+
+mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+
+cleanup() {
+  echo "Restoring stash…"
+  if [ -d "$STASH" ]; then
+    (cd "$STASH" && find . -type f -print) | while read -r rel; do
+      mkdir -p "$(dirname "${rel#./}")"
+      mv "$STASH/${rel#./}" "${rel#./}"
+    done
+    rm -rf "$STASH"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+stash() {
+  local f="$1"
+  mkdir -p "$STASH/$(dirname "$f")"
+  mv "$f" "$STASH/$f"
+}
+unstash() {
+  local f="$1"
+  mkdir -p "$(dirname "$f")"
+  mv "$STASH/$f" "$f"
+}
+
+lo=0; hi=$(( ${#FILES[@]} - 1 ))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  # Stash UPPER half; predicate runs against [lo..mid].
+  for (( i = mid + 1; i <= hi; i++ )); do stash "${FILES[$i]}"; done
+
+  if $PREDICATE >/dev/null 2>&1; then
+    # Lower half is clean → culprit is in upper half.
+    for (( i = mid + 1; i <= hi; i++ )); do unstash "${FILES[$i]}"; done
+    lo=$((mid + 1))
+  else
+    # Restore upper, then stash lower-upper for next round.
+    for (( i = mid + 1; i <= hi; i++ )); do unstash "${FILES[$i]}"; done
+    hi=$mid
+  fi
+done
+
+echo "Culprit: ${FILES[$lo]}"
+</pre>
+
+<h3>Caching predicate results</h3>
+<p>A subtle win: the same subset can be re-tested across runs. Hash the subset, memoize the answer.</p>
+
+<pre class="code" data-lang="shell" data-title="memoized-predicate.sh"># Run the predicate, but cache pass/fail by the SHA of the input file list.
+predicate_memo() {
+  local key
+  key="$(printf '%s\n' "$@" | sort | sha256sum | cut -d' ' -f1)"
+  local cache=".bisect-cache/$key"
+  mkdir -p .bisect-cache
+  if [ -f "$cache" ]; then
+    return "$(cat "$cache")"
+  fi
+  pnpm exec svelte-check --filter "$@" >/dev/null 2>&1
+  local rc=$?
+  echo "$rc" > "$cache"
+  return "$rc"
+}
+</pre>
+
+<p>Memoization matters more than it looks. When you abort a run, fix something, and re-bisect, every previously tested subset is free. Combined with halving, a 1000-file project narrows in under a minute on the second pass.</p>
+</template>
+
+<template data-page-title="Bisecting Memory Leaks" data-part="III — File & Module">
+<span class="badge">Part III · File & Module Bisection</span>
+<h2 class="page-title">Bisecting Component Memory Leaks (real heap snapshots)</h2>
+<p class="lede">The hardest leaks are the silent ones: the page renders fine, the tests pass, but RAM creeps up over the demo. We'll bisect which component is leaking by mounting halves of the suspect list under Playwright, sampling the heap via Chrome DevTools Protocol, and recursing.</p>
+
+<h3>The principle</h3>
+<p>A real memory leak is monotonic: the retained heap after a mount/unmount cycle either returns to baseline (no leak) or stays above baseline (leak). If we mount <em>half</em> the suspect components in sequence, take a snapshot, and compare against baseline, we know which half is leaking. Recurse.</p>
+
+<h3>The full bisector</h3>
+<p>This is a real Node script. It uses Playwright (already in most modern Svelte/React stacks for tests) and the CDP <code>HeapProfiler.takeHeapSnapshot</code> endpoint. Drop it into a project that has Playwright installed.</p>
+
+<pre class="code" data-lang="javascript" data-title="mem-leak-bisect.mjs">#!/usr/bin/env node
+// mem-leak-bisect.mjs
+// Binary-search across a set of components to find the one that leaks memory.
+//
+// HOW IT WORKS:
+//   1. Boot a Playwright Chromium instance, navigate to a harness URL.
+//   2. The harness exposes a `mount(name)` and `unmount()` function via window.
+//   3. For each suspect subset: mount every component in sequence, unmount,
+//      force GC via CDP, take a heap snapshot, record retained size.
+//   4. Compare against baseline. Above threshold = "leak in this subset".
+//   5. Recurse.
+//
+// USAGE:
+//   node mem-leak-bisect.mjs http://localhost:5173/__leak-harness "Button,Card,Chart,Modal,..."
+//
+// HARNESS REQUIREMENT (drop into your SvelteKit dev server):
+//   src/routes/__leak-harness/+page.svelte:
+//   <script>
+//     import { mount, unmount } from 'svelte';
+//     const components = import.meta.glob('/src/lib/components/**/*.svelte', { eager: true });
+//     let current = null;
+//     window.__mount = async (name) => {
+//       const mod = Object.entries(components).find(([k]) => k.endsWith('/' + name + '.svelte'))?.[1];
+//       if (!mod) throw new Error('Unknown component: ' + name);
+//       current = mount(mod.default, { target: document.getElementById('host') });
+//     };
+//     window.__unmount = async () => { if (current) { await unmount(current); current = null; } };
+//   </script>
+//   <div id="host"></div>
+
+import { chromium } from 'playwright';
+
+const HARNESS_URL = process.argv[2];
+const SUSPECTS   = (process.argv[3] || '').split(',').filter(Boolean);
+const LEAK_BYTES = Number(process.env.LEAK_BYTES_THRESHOLD || 512 * 1024); // 512 KB
+
+if (!HARNESS_URL || !SUSPECTS.length) {
+  console.error('usage: mem-leak-bisect.mjs <harness-url> <comp1,comp2,...>');
+  process.exit(2);
+}
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext();
+const page = await ctx.newPage();
+const cdp = await ctx.newCDPSession(page);
+
+await page.goto(HARNESS_URL, { waitUntil: 'networkidle' });
+await cdp.send('HeapProfiler.enable');
+
+async function forceGC() {
+  await cdp.send('HeapProfiler.collectGarbage');
+  await page.evaluate(() => new Promise(r => setTimeout(r, 100)));
+  await cdp.send('HeapProfiler.collectGarbage');
+}
+
+async function retainedHeap() {
+  await forceGC();
+  const { usedSize } = await cdp.send('Runtime.getHeapUsage');
+  return usedSize;
+}
+
+async function mountCycle(names) {
+  for (const name of names) {
+    await page.evaluate((n) => window.__mount(n), name);
+    await page.evaluate(() => new Promise(r => setTimeout(r, 50)));
+    await page.evaluate(() => window.__unmount());
+  }
+}
+
+async function leakSize(subset) {
+  const baseline = await retainedHeap();
+  await mountCycle(subset);
+  const after = await retainedHeap();
+  return after - baseline;
+}
+
+// Stabilize the page; do a warm-up cycle that we discard.
+console.log('Warming up…');
+await mountCycle(SUSPECTS.slice(0, Math.min(3, SUSPECTS.length)));
+await forceGC();
+
+console.log(`Bisecting ${SUSPECTS.length} components, leak threshold = ${LEAK_BYTES} bytes`);
+
+let lo = 0, hi = SUSPECTS.length - 1, round = 0;
+while (lo < hi) {
+  round++;
+  const mid = (lo + hi) >> 1;
+  const subset = SUSPECTS.slice(lo, mid + 1);
+  const leaked = await leakSize(subset);
+  const verdict = leaked > LEAK_BYTES ? 'LEAK' : 'clean';
+  console.log(`round ${round}: subset [${lo}..${mid}] (${subset.length} comps) → ${leaked} bytes ${verdict}`);
+
+  if (leaked > LEAK_BYTES) {
+    hi = mid;
+  } else {
+    lo = mid + 1;
+  }
+}
+
+console.log('\n═══════════════════════════════════════════');
+console.log(`Leaking component: ${SUSPECTS[lo]}`);
+console.log('═══════════════════════════════════════════');
+
+await browser.close();
+</pre>
+
+<h3>Why force-GC matters</h3>
+<p>Without explicit <code>HeapProfiler.collectGarbage</code>, V8 keeps short-lived garbage around until <em>it</em> decides to collect. Your "leak" might just be deferred collection. Calling collect twice (the second pass finalizes weak references freed in the first) is the convention used by Chrome's own DevTools "Take heap snapshot" button.</p>
+
+<h3>Tuning the threshold</h3>
+<table class="cmp">
+<tr><th>Symptom</th><th>Threshold to try</th><th>Why</th></tr>
+<tr><td>"Tiny" leak: a forgotten listener</td><td>64–256 KB</td><td>Single closure + node retention; noisy below this floor.</td></tr>
+<tr><td>Subscription leak (stores, observables)</td><td>256 KB–1 MB</td><td>Each cycle accumulates one closure per missed unsubscribe.</td></tr>
+<tr><td>"Big" leak: detached DOM tree</td><td>1–10 MB</td><td>Whole subtrees pinned by a global ref.</td></tr>
+<tr><td>Worker / canvas leak</td><td>10 MB+</td><td>Native-backed objects retain large GPU/CPU buffers.</td></tr>
+</table>
+
+<h3>Extending it: heap-snapshot diffing</h3>
+<p>Want to know <em>what's being retained</em>, not just that something is? Replace <code>retainedHeap()</code> with a real snapshot and diff:</p>
+
+<pre class="code" data-lang="javascript" data-title="snapshot-diff.mjs">async function takeSnapshot(label) {
+  let chunks = '';
+  const handler = ({ chunk }) => { chunks += chunk; };
+  cdp.on('HeapProfiler.addHeapSnapshotChunk', handler);
+  await cdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });
+  cdp.off('HeapProfiler.addHeapSnapshotChunk', handler);
+  await import('fs').then(fs => fs.writeFileSync(`heap-${label}.heapsnapshot`, chunks));
+  return chunks.length; // returned size is a quick monotonic proxy
+}
+// Open both .heapsnapshot files in Chrome DevTools → Memory → "Comparison" view.
+</pre>
+</template>
+
+<template data-page-title="Bisecting CSS &amp; Tailwind" data-part="III — File & Module">
+<span class="badge">Part III · File & Module Bisection</span>
+<h2 class="page-title">Bisecting CSS & Tailwind Regressions</h2>
+<p class="lede">"The header looks wrong." Twenty stylesheets, hundreds of utilities, one broken rule. The bisection adapts: instead of a build pass/fail, your predicate is a visual diff.</p>
+
+<h3>Setup: a baseline screenshot</h3>
+<p>You need a reference image from when the page looked right. Capture it before you start:</p>
+
+<pre class="code" data-lang="javascript" data-title="capture-baseline.mjs">// capture-baseline.mjs — run once on the last known-good commit.
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 }})).newPage();
+await page.goto('http://localhost:5173/');
+await page.waitForLoadState('networkidle');
+await page.screenshot({ path: 'baseline.png', fullPage: true });
+await browser.close();
+</pre>
+
+<h3>The predicate: pixel diff with a tolerance</h3>
+
+<pre class="code" data-lang="javascript" data-title="pixel-diff-predicate.mjs">#!/usr/bin/env node
+// pixel-diff-predicate.mjs — exit 0 if current page matches baseline, 1 if not.
+// Used both standalone and inside a bisection loop.
+import { chromium } from 'playwright';
+import pixelmatch from 'pixelmatch';
+import { PNG } from 'pngjs';
+import fs from 'fs';
+
+const URL = process.env.URL || 'http://localhost:5173/';
+const TOL_PIXELS = Number(process.env.TOL_PIXELS || 200);
+
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 }})).newPage();
+await page.goto(URL); await page.waitForLoadState('networkidle');
+const current = await page.screenshot({ fullPage: true });
+await browser.close();
+
+const a = PNG.sync.read(fs.readFileSync('baseline.png'));
+const b = PNG.sync.read(current);
+const diff = new PNG({ width: a.width, height: a.height });
+const changed = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1 });
+
+fs.writeFileSync('diff.png', PNG.sync.write(diff));
+console.log(`changed pixels: ${changed} (tolerance: ${TOL_PIXELS})`);
+process.exit(changed > TOL_PIXELS ? 1 : 0);
+</pre>
+
+<h3>Bisecting Tailwind utility classes</h3>
+<p>The exotic case: a long <code>class="…"</code> string in a component has 40 utilities. You added 8 recently. One of them is the culprit. The bisector takes the class list and binary-halves it, rewriting the component each round:</p>
+
+<pre class="code" data-lang="javascript" data-title="bisect-tailwind-classes.mjs">#!/usr/bin/env node
+// bisect-tailwind-classes.mjs
+// Bisects which Tailwind class in a component's `class` attribute causes a regression.
+// Rewrites the component in place each round, restores on exit.
+//
+// USAGE:
+//   node bisect-tailwind-classes.mjs ./src/lib/Header.svelte
+//   (script will prompt you to pick which `class="…"` attribute to bisect)
+//
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+
+const file = process.argv[2];
+const orig = fs.readFileSync(file, 'utf8');
+
+// Find every class="…" occurrence.
+const re = /class="([^"]+)"/g;
+const matches = [...orig.matchAll(re)];
+if (!matches.length) { console.error('No class attributes found.'); process.exit(2); }
+matches.forEach((m, i) => console.log(`[${i}] ${m[1].slice(0, 80)}${m[1].length > 80 ? '…' : ''}`));
+
+const which = Number(process.argv[3] || 0);
+const target = matches[which];
+const classes = target[1].split(/\s+/).filter(Boolean);
+console.log(`Bisecting ${classes.length} classes in attribute #${which}`);
+
+process.on('exit', () => fs.writeFileSync(file, orig));
+process.on('SIGINT', () => process.exit(130));
+
+function applyKeep(keep) {
+  const patched = orig.replace(target[0], `class="${keep.join(' ')}"`);
+  fs.writeFileSync(file, patched);
+}
+
+function predicateFails() {
+  const r = spawnSync('node', ['pixel-diff-predicate.mjs'], { stdio: 'inherit' });
+  return r.status !== 0;
+}
+
+let lo = 0, hi = classes.length - 1;
+while (lo < hi) {
+  const mid = (lo + hi) >> 1;
+  const keepLower = classes.slice(0, mid + 1);
+  applyKeep(keepLower);
+  console.log(`testing classes [0..${mid}]`);
+  if (predicateFails()) hi = mid; else lo = mid + 1;
+}
+applyKeep(classes); // restore full set before reporting
+console.log(`\nCulprit class: "${classes[lo]}"`);
+</pre>
+
+<h3>When CSS bisection lies</h3>
+<div class="callout bad">
+<div class="callout-title">Watch out</div>
+<p>CSS rules <em>interact</em>. Removing <code>flex</code> can mask a bug caused by <code>justify-between</code>. Class bisection assumes <em>independence</em>; in CSS that's often false. If the bisector lands on a class that "looks fine on its own," it's because that class enables a second, real culprit. Re-add the suggested class and bisect the rest of the list again — you'll find the partner.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Dependencies" data-part="IV — Dependency & Build">
+<span class="badge">Part IV · Dependency & Build Bisection</span>
+<h2 class="page-title">Bisecting <code class="no-style">package.json</code> Dependencies</h2>
+<p class="lede">You ran <code>pnpm update</code>. Forty packages got bumped. The app no longer boots. Linear: bump them back one by one (40 reinstall cycles). Logarithmic: halve them — six reinstalls and you have the culprit.</p>
+
+<h3>The pnpm-lock trick</h3>
+<p>pnpm exposes <code>pnpm.overrides</code> in <code>package.json</code> and an <code>overrides</code> field in <code>pnpm-workspace.yaml</code>. We can use it to pin <em>half</em> the bumped packages back to their old versions and reinstall — without editing the lockfile by hand.</p>
+
+<pre class="code" data-lang="javascript" data-title="dep-bisect.mjs">#!/usr/bin/env node
+// dep-bisect.mjs
+// Binary-search across recently-bumped dependencies to find the one that broke
+// the app. Uses pnpm overrides to pin halves of the set back to known-good versions.
+//
+// PRECONDITIONS:
+//   • A list of (name, oldVersion, newVersion) tuples. Build it from a diff
+//     of `pnpm.lock` between the last green commit and HEAD, or pipe in
+//     `pnpm outdated --json` from before the update.
+//   • A predicate command (default: `pnpm build && pnpm test --run`).
+//
+// USAGE:
+//   node dep-bisect.mjs bumps.json "pnpm build && pnpm test --run"
+//
+// bumps.json:
+//   [
+//     {"name": "vite", "old": "5.4.10", "new": "6.0.0"},
+//     {"name": "svelte", "old": "5.0.0", "new": "5.1.4"},
+//     ...
+//   ]
+
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+
+const BUMPS = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const PREDICATE = process.argv[3] || 'pnpm build';
+const PKG = './package.json';
+
+const originalPkg = fs.readFileSync(PKG, 'utf8');
+process.on('exit', () => {
+  fs.writeFileSync(PKG, originalPkg);
+  spawnSync('pnpm', ['install', '--silent'], { stdio: 'inherit' });
+});
+
+function withOverrides(pinNames) {
+  const pkg = JSON.parse(originalPkg);
+  pkg.pnpm = pkg.pnpm || {};
+  pkg.pnpm.overrides = Object.fromEntries(
+    BUMPS.filter(b => pinNames.has(b.name)).map(b => [b.name, b.old])
+  );
+  fs.writeFileSync(PKG, JSON.stringify(pkg, null, 2));
+  const r = spawnSync('pnpm', ['install', '--no-frozen-lockfile', '--silent'], { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('install failed');
+}
+
+function runPredicate() {
+  const r = spawnSync('sh', ['-c', PREDICATE], { stdio: 'inherit' });
+  return r.status === 0;
+}
+
+console.log(`Bisecting ${BUMPS.length} dependency bumps`);
+
+// Invariant we're searching for:
+//   Pinning bump set S to their OLD versions makes the build work.
+//   Smallest such S includes the culprit.
+//
+// Strategy: classical binary search across an ordered list of bumps.
+// If pinning lower half WORKS, the culprit is in the lower half (one of those
+// pins is necessary). If pinning lower half DOES NOT work, the culprit is in
+// the upper half (and we'd need to also pin one of those).
+
+let lo = 0, hi = BUMPS.length - 1, round = 0;
+while (lo < hi) {
+  round++;
+  const mid = (lo + hi) >> 1;
+  const pinNames = new Set(BUMPS.slice(lo, mid + 1).map(b => b.name));
+  console.log(`\nround ${round}: pinning [${lo}..${mid}] (${pinNames.size} pkgs)`);
+  withOverrides(pinNames);
+  if (runPredicate()) {
+    // Pinning lower half fixed it → culprit is in lower half.
+    hi = mid;
+  } else {
+    lo = mid + 1;
+  }
+}
+
+console.log(`\nCulprit bump: ${BUMPS[lo].name}  ${BUMPS[lo].old} → ${BUMPS[lo].new}`);
+</pre>
+
+<h3>Building the <code>bumps.json</code> from a real update</h3>
+
+<pre class="code" data-lang="shell" data-title="build-bumps-json.sh">#!/usr/bin/env bash
+# Captures what `pnpm update` changed so dep-bisect.mjs can drive it.
+set -euo pipefail
+
+# 1) Snapshot current versions BEFORE updating.
+node -e '
+  const pkg = require("./package.json");
+  const all = {...pkg.dependencies, ...pkg.devDependencies};
+  process.stdout.write(JSON.stringify(all, null, 2));
+' > /tmp/versions-before.json
+
+# 2) Update.
+pnpm update --latest
+
+# 3) Snapshot AFTER, diff.
+node -e '
+  const before = require("/tmp/versions-before.json");
+  const pkg = require("./package.json");
+  const after = {...pkg.dependencies, ...pkg.devDependencies};
+  const bumps = Object.keys(after)
+    .filter(n => before[n] && before[n] !== after[n])
+    .map(n => ({ name: n, old: before[n].replace(/^[~^]/, ""), new: after[n].replace(/^[~^]/, "") }));
+  process.stdout.write(JSON.stringify(bumps, null, 2));
+' > bumps.json
+
+echo "Wrote bumps.json with $(jq length bumps.json) entries"
+</pre>
+
+<h3>The transitive-dependency caveat</h3>
+<p>Sometimes the broken package is a <em>transitive</em> dep: your direct deps are fine, but one of them now pulls in a broken sub-dep. Detect this by also bisecting <code>pnpm-lock.yaml</code> directly — check out the lockfile from the last green commit, install, and confirm the bug disappears. If it does, the culprit is a transitive bump; widen <code>bumps.json</code> to include every changed entry in <code>pnpm-lock.yaml</code>, not just direct deps.</p>
+
+<pre class="code" data-lang="shell" data-title="dep-bisect-transitive.sh"># Extract every package whose version differs between two lockfile commits.
+git show HEAD~1:pnpm-lock.yaml > /tmp/lock.old
+git show HEAD:pnpm-lock.yaml   > /tmp/lock.new
+
+node -e '
+  const yaml = require("yaml");
+  const fs = require("fs");
+  const old = yaml.parse(fs.readFileSync("/tmp/lock.old", "utf8")).packages || {};
+  const neu = yaml.parse(fs.readFileSync("/tmp/lock.new", "utf8")).packages || {};
+  const bumps = [];
+  for (const k of Object.keys(neu)) {
+    if (old[k]) continue;
+    // pnpm lock keys look like /react@18.3.1
+    const m = k.match(/^\/(.+)@([^\/]+)/);
+    if (!m) continue;
+    const [, name, version] = m;
+    const oldKey = Object.keys(old).find(o => o.startsWith("/" + name + "@"));
+    if (!oldKey) continue;
+    const oldV = oldKey.match(/@([^\/]+)$/)[1];
+    if (oldV !== version) bumps.push({ name, old: oldV, new: version });
+  }
+  process.stdout.write(JSON.stringify(bumps, null, 2));
+' > bumps-transitive.json
+</pre>
+</template>
+
+<template data-page-title="Bisecting TypeScript Config" data-part="IV — Dependency & Build">
+<span class="badge">Part IV · Dependency & Build Bisection</span>
+<h2 class="page-title">Bisecting <code class="no-style">tsconfig.json</code> Compiler Options</h2>
+<p class="lede">You turned on <code>"strict": true</code>. 1,500 errors. Which sub-flag is doing the damage? You could just narrow them one at a time. Or you can bisect the option set in 4 rounds.</p>
+
+<h3>The strict flag set</h3>
+<p>Under the hood, <code>strict: true</code> enables a known list of sub-flags. TypeScript 5.6+ uses this set (verify with <code>tsc --showConfig</code>):</p>
+<table class="cmp">
+<tr><th>Flag</th><th>Typical error count when turned on</th></tr>
+<tr><td><code>noImplicitAny</code></td><td>Often the largest hit on legacy code.</td></tr>
+<tr><td><code>strictNullChecks</code></td><td>Universally large; the most valuable.</td></tr>
+<tr><td><code>strictFunctionTypes</code></td><td>Rare hits unless using complex callbacks.</td></tr>
+<tr><td><code>strictBindCallApply</code></td><td>Rare. Usually clean.</td></tr>
+<tr><td><code>strictPropertyInitialization</code></td><td>Class-heavy codebases.</td></tr>
+<tr><td><code>noImplicitThis</code></td><td>Mostly old-school <code>function() { this… }</code> code.</td></tr>
+<tr><td><code>alwaysStrict</code></td><td>Almost never an error source.</td></tr>
+<tr><td><code>useUnknownInCatchVariables</code></td><td>Catch handlers using <code>err.message</code>.</td></tr>
+</table>
+
+<h3>The bisector</h3>
+
+<pre class="code" data-lang="javascript" data-title="tsconfig-bisect.mjs">#!/usr/bin/env node
+// tsconfig-bisect.mjs
+// Bisects which of a list of compiler options is responsible for a build failure.
+//
+// USAGE:
+//   node tsconfig-bisect.mjs '["noImplicitAny","strictNullChecks","strictFunctionTypes",...]'
+//
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+
+const OPTIONS = JSON.parse(process.argv[2]);
+const CFG = './tsconfig.json';
+
+const original = fs.readFileSync(CFG, 'utf8');
+process.on('exit', () => fs.writeFileSync(CFG, original));
+
+function apply(enabled) {
+  const cfg = JSON.parse(original);
+  cfg.compilerOptions = cfg.compilerOptions || {};
+  // Reset every option in OPTIONS to false, then enable only `enabled`.
+  for (const o of OPTIONS) cfg.compilerOptions[o] = false;
+  for (const o of enabled) cfg.compilerOptions[o] = true;
+  // Make sure umbrella `strict` isn't masking us.
+  cfg.compilerOptions.strict = false;
+  fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));
+}
+
+function buildFails() {
+  const r = spawnSync('pnpm', ['exec', 'tsc', '--noEmit'], { stdio: 'pipe' });
+  return r.status !== 0;
+}
+
+console.log(`Bisecting ${OPTIONS.length} compiler options`);
+
+// Confirm: enabling ALL options fails; enabling NONE passes.
+apply(OPTIONS);
+if (!buildFails()) { console.log('All options on → still passes. Nothing to find.'); process.exit(0); }
+apply([]);
+if (buildFails())  { console.log('No options on → still fails. The bug is elsewhere.'); process.exit(0); }
+
+let lo = 0, hi = OPTIONS.length - 1;
+while (lo < hi) {
+  const mid = (lo + hi) >> 1;
+  apply(OPTIONS.slice(lo, mid + 1));
+  console.log(`testing [${OPTIONS.slice(lo, mid + 1).join(', ')}]`);
+  if (buildFails()) hi = mid; else lo = mid + 1;
+}
+console.log(`\nCulprit option: ${OPTIONS[lo]}`);
+</pre>
+
+<h3>When multiple options interact</h3>
+<p>Some flags only error <em>in combination</em>. <code>strictNullChecks</code> + <code>exactOptionalPropertyTypes</code> together produce errors neither produces alone. After the bisector lands, try toggling its companion flags one at a time on top — that's a quick sanity check for interaction.</p>
+
+<h3>Same idea, JS engines: bisecting <code>NODE_OPTIONS</code></h3>
+<pre class="code" data-lang="shell" data-title="bisect-node-flags.sh">#!/usr/bin/env bash
+# Bisect which V8/Node flag in a long NODE_OPTIONS string causes a regression.
+set -euo pipefail
+
+FLAGS=(--experimental-vm-modules --enable-source-maps --no-warnings \
+       --max-old-space-size=8192 --experimental-fetch --trace-deprecation \
+       --inspect-publish-uid=stderr)
+
+PREDICATE="pnpm test --run"
+
+lo=0; hi=$(( ${#FLAGS[@]} - 1 ))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  subset=("${FLAGS[@]:lo:mid-lo+1}")
+  NODE_OPTIONS="${subset[*]}" $PREDICATE >/dev/null 2>&1 \
+    && lo=$((mid + 1)) || hi=$mid
+  echo "narrowed to [$lo..$hi]"
+done
+echo "Culprit flag: ${FLAGS[$lo]}"
+</pre>
+</template>
+
+<template data-page-title="Bisecting Vite Plugins" data-part="IV — Dependency & Build">
+<span class="badge">Part IV · Dependency & Build Bisection</span>
+<h2 class="page-title">Bisecting Vite (or Webpack) Plugins</h2>
+<p class="lede">Your build was healthy until you added six plugins for analytics, sentry, MDsveX, image optimization, GraphQL codegen, and PWA. Build is now 4× slower or breaks. Which plugin?</p>
+
+<h3>The bisector</h3>
+
+<pre class="code" data-lang="javascript" data-title="vite-plugin-bisect.mjs">#!/usr/bin/env node
+// vite-plugin-bisect.mjs
+// Edits vite.config.js to binary-halve the plugins array, runs `pnpm build`,
+// and reports the culprit. Restores the file on exit.
+//
+// REQUIRED MARKER in your vite.config.js:
+//   plugins: [
+//     /* @bisect:begin */
+//     pluginA(),
+//     pluginB(),
+//     pluginC(),
+//     /* @bisect:end */
+//   ],
+//
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+
+const FILE = 'vite.config.js';
+const original = fs.readFileSync(FILE, 'utf8');
+process.on('exit', () => fs.writeFileSync(FILE, original));
+
+const begin = original.indexOf('/* @bisect:begin */');
+const end   = original.indexOf('/* @bisect:end */');
+if (begin === -1 || end === -1) {
+  console.error('Add /* @bisect:begin */ … /* @bisect:end */ markers around the plugins array.');
+  process.exit(2);
+}
+
+const head = original.slice(0, begin + '/* @bisect:begin */'.length);
+const tail = original.slice(end);
+const middle = original.slice(begin + '/* @bisect:begin */'.length, end);
+
+// Split on commas at depth 0.
+const plugins = [];
+let depth = 0, current = '';
+for (const ch of middle) {
+  if (ch === '(' || ch === '[' || ch === '{') depth++;
+  if (ch === ')' || ch === ']' || ch === '}') depth--;
+  if (ch === ',' && depth === 0) {
+    if (current.trim()) plugins.push(current.trim());
+    current = '';
+  } else current += ch;
+}
+if (current.trim()) plugins.push(current.trim());
+
+console.log(`Found ${plugins.length} plugins to bisect.`);
+
+function withPlugins(list) {
+  fs.writeFileSync(FILE, head + '\n' + list.join(',\n') + (list.length ? ',\n' : '') + tail);
+}
+
+function buildOk() {
+  return spawnSync('pnpm', ['build'], { stdio: 'inherit' }).status === 0;
+}
+
+let lo = 0, hi = plugins.length - 1;
+while (lo < hi) {
+  const mid = (lo + hi) >> 1;
+  withPlugins(plugins.slice(lo, mid + 1));
+  console.log(`testing plugins [${lo}..${mid}]`);
+  if (buildOk()) lo = mid + 1; else hi = mid;
+}
+console.log(`\nCulprit plugin: ${plugins[lo]}`);
+</pre>
+
+<h3>For Webpack</h3>
+<p>The same technique works against a <code>webpack.config.js</code> — just point at the <code>module.exports.plugins</code> array. Module-rule bisection is a useful variant: split <code>module.rules</code> in halves to find the loader chain that's choking.</p>
+
+<h3>Plugin ordering is real</h3>
+<div class="callout">
+<div class="callout-title">Gotcha</div>
+<p>Vite/Webpack plugins often <em>depend</em> on order. A bisection that removes plugins from the middle changes the order relative to surrounding plugins. If your build relies on (say) <code>vite-plugin-svelte</code> running before <code>vite-plugin-mdx</code>, bisection can find a "culprit" that is really just an ordering victim. To rule this out: when the bisector lands, manually re-add the suspect at its original position and confirm the failure still reproduces.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Flaky Tests" data-part="V — Test & Performance">
+<span class="badge">Part V · Test & Performance Bisection</span>
+<h2 class="page-title">Bisecting a Flaky Test (finding the polluter)</h2>
+<p class="lede">A test passes in isolation. It fails when the full suite runs. Some <em>other</em> test is polluting global state (the DOM, the network mock registry, a singleton). We'll find the polluter by bisecting which subset of the suite, run before the suspect, causes the failure.</p>
+
+<h3>The setup</h3>
+<ol>
+  <li>Identify the failing test (call it <code>tests/auth/session.test.ts</code>).</li>
+  <li>List every other test file, in the order vitest runs them.</li>
+  <li>Bisect: run halves of "everything before", then the suspect. The half that reproduces contains the polluter.</li>
+</ol>
+
+<h3>The bisector</h3>
+
+<pre class="code" data-lang="shell" data-title="flaky-test-bisect.sh">#!/usr/bin/env bash
+# flaky-test-bisect.sh
+# Find which earlier test pollutes global state and makes a suspect test flake.
+#
+# USAGE:
+#   ./flaky-test-bisect.sh tests/auth/session.test.ts
+#
+# OUTPUT:
+#   Path of the polluting test file.
+#
+set -euo pipefail
+
+SUSPECT="${1:?usage: $0 <suspect-test-file>}"
+
+# Get the canonical order vitest uses, excluding the suspect.
+mapfile -t SUITE < <(
+  pnpm exec vitest list --reporter=json 2>/dev/null \
+    | jq -r '.testModules[].moduleId' \
+    | grep -v -F "$SUSPECT"
+)
+N="${#SUITE[@]}"
+echo "Suite has $N tests before $SUSPECT"
+
+# Confirm: running suspect ALONE passes.
+if ! pnpm exec vitest run "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+  echo "Suspect fails in isolation — not a pollution flake. Stopping."
+  exit 1
+fi
+# Confirm: running suite + suspect together FAILS.
+if pnpm exec vitest run "${SUITE[@]}" "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+  echo "Suite + suspect passes — not reproducible. Stopping."
+  exit 0
+fi
+
+lo=0; hi=$((N - 1)); round=0
+while (( lo < hi )); do
+  round=$((round + 1))
+  mid=$(( (lo + hi) / 2 ))
+  before=("${SUITE[@]:lo:mid-lo+1}")
+  echo "round $round: running ${#before[@]} tests before suspect (indices $lo..$mid)"
+  if pnpm exec vitest run "${before[@]}" "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+    # Lower half didn't reproduce → polluter is in upper half.
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo
+echo "Polluter: ${SUITE[$lo]}"
+</pre>
+
+<h3>What pollution looks like</h3>
+<p>Once you have the polluter, look for the usual suspects (the irony):</p>
+<ul>
+  <li><strong>Unrestored globals:</strong> <code>globalThis.fetch</code>, <code>window.location</code>, <code>document.body.innerHTML</code> overwritten and never reset.</li>
+  <li><strong>Module-level state:</strong> a service module that lazily caches a config object on first call — and the polluter sets it to test mode.</li>
+  <li><strong>Network mock registry:</strong> MSW handlers added without <code>server.resetHandlers()</code> in <code>afterEach</code>.</li>
+  <li><strong>Timer/zone leaks:</strong> a <code>setInterval</code> the polluter starts and never clears.</li>
+  <li><strong>Database/transaction leaks:</strong> a rolled-back transaction that didn't actually roll back because of nested savepoints.</li>
+</ul>
+
+<h3>Bisecting <em>within</em> the polluter</h3>
+<p>If the polluter is large, recurse: bisect which test <em>case</em> inside the polluter file does the damage. Vitest exposes per-test isolation via the <code>--testNamePattern</code> flag, so the inner loop is symmetric.</p>
+
+<pre class="code" data-lang="shell" data-title="bisect-within-file.sh"># Bisect across test names inside one polluter file.
+POLLUTER="$1"; SUSPECT="$2"
+mapfile -t NAMES < <(
+  pnpm exec vitest list --reporter=json "$POLLUTER" \
+    | jq -r '.testModules[0].tasks[].name'
+)
+lo=0; hi=$((${#NAMES[@]} - 1))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  pattern=$(IFS='|'; echo "${NAMES[*]:lo:mid-lo+1}")
+  if pnpm exec vitest run "$POLLUTER" -t "$pattern" "$SUSPECT" >/dev/null 2>&1; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo "Polluting test case: ${NAMES[$lo]}"
+</pre>
+</template>
+
+<template data-page-title="Bisecting Performance Regressions" data-part="V — Test & Performance">
+<span class="badge">Part V · Test & Performance Bisection</span>
+<h2 class="page-title">Bisecting a Performance Regression</h2>
+<p class="lede">The build was 6 seconds. Now it's 22. Or the API p95 was 80 ms; now it's 600. Same bisection, with a numeric predicate: "did the benchmark cross the threshold?"</p>
+
+<h3>The predicate</h3>
+
+<pre class="code" data-lang="shell" data-title="perf-bisect-predicate.sh">#!/usr/bin/env bash
+# perf-bisect-predicate.sh
+# Returns 0 (good) if benchmark p50 ≤ BUDGET_MS, 1 (bad) if over, 125 if can't run.
+# Designed for `git bisect run`.
+#
+# REQUIREMENTS: hyperfine, jq.
+set -uo pipefail
+
+BUDGET_MS="${BUDGET_MS:-10000}"
+COMMAND="${COMMAND:-pnpm build}"
+WARMUPS=3
+RUNS=5
+
+# Skip if install/build can't even start.
+pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+
+# Run the benchmark; emit JSON for jq.
+if ! hyperfine --warmup "$WARMUPS" --runs "$RUNS" --export-json /tmp/bench.json \
+     "$COMMAND" >/tmp/bench.log 2>&1; then
+  exit 125
+fi
+
+# hyperfine reports mean/median in seconds.
+P50_MS=$(jq '.results[0].median * 1000 | round' /tmp/bench.json)
+echo "median: ${P50_MS} ms (budget ${BUDGET_MS} ms)"
+
+if (( P50_MS > BUDGET_MS )); then exit 1; else exit 0; fi
+</pre>
+
+<h3>Driving the bisection</h3>
+<pre class="code" data-lang="shell" data-title="drive-perf-bisect.sh">#!/usr/bin/env bash
+# Find the commit that crossed the performance budget.
+set -euo pipefail
+
+BAD="${1:-HEAD}"
+GOOD="${2:?usage: $0 <bad> <good> [budget-ms] [command]}"
+BUDGET_MS="${3:-10000}"
+COMMAND="${4:-pnpm build}"
+
+export BUDGET_MS COMMAND
+
+git bisect start "$BAD" "$GOOD"
+git bisect run ./perf-bisect-predicate.sh | tee /tmp/perf-bisect.log
+git bisect reset
+</pre>
+
+<h3>Statistical care</h3>
+<p>Performance numbers are inherently noisy. The threshold trick works only when the regression is much larger than the noise. Two guards:</p>
+<ul>
+  <li><strong>Set the budget halfway between known-good and known-bad medians.</strong> If good is 6s and bad is 22s, use 14s. Big margin = stable verdict.</li>
+  <li><strong>Use hyperfine's <code>--runs</code> and the <em>median</em>, not mean.</strong> One stray cosmic ray can blow your average. Median ignores it.</li>
+</ul>
+
+<h3>Per-route API benchmark predicate</h3>
+
+<pre class="code" data-lang="shell" data-title="api-perf-predicate.sh">#!/usr/bin/env bash
+# Boot the server in the background, fire k6 against it, threshold p95.
+set -uo pipefail
+
+# Start the server.
+pnpm start &>/tmp/server.log &
+PID=$!
+trap 'kill $PID 2>/dev/null || true' EXIT
+
+# Wait for readiness (10s timeout).
+for i in {1..20}; do
+  curl -sf http://localhost:3000/health >/dev/null && break
+  sleep 0.5
+done
+
+# Run a 20-second k6 test.
+k6 run --quiet --duration 20s --vus 50 --summary-export=/tmp/k6.json - <<'JS'
+import http from 'k6/http';
+import { sleep } from 'k6';
+export default function () {
+  http.get('http://localhost:3000/api/products');
+  sleep(0.1);
+}
+JS
+
+P95_MS=$(jq '.metrics.http_req_duration["p(95)"] | round' /tmp/k6.json)
+BUDGET_MS="${API_BUDGET_MS:-200}"
+echo "p95 ${P95_MS}ms (budget ${BUDGET_MS}ms)"
+
+(( P95_MS > BUDGET_MS )) && exit 1 || exit 0
+</pre>
+</template>
+
+<template data-page-title="Bisecting Server Memory Leaks" data-part="V — Test & Performance">
+<span class="badge">Part V · Test & Performance Bisection</span>
+<h2 class="page-title">Bisecting Memory Leaks in Long-Running Node Servers</h2>
+<p class="lede">Your Node API server's RSS grows ~50 MB per hour in production. It restarts before OOM and nobody notices for a sprint. We'll bisect <em>which routes</em> leak by halving the route table under synthetic load and watching heap retained size with <code>clinic heapprofiler</code>.</p>
+
+<h3>The architecture</h3>
+<p>One Node process under test. A wrapper script that loads a configurable subset of routes (driven by an env var). A synthetic load generator (autocannon) that hits every loaded route. A monitor that polls <code>process.memoryUsage()</code> and exits with a verdict.</p>
+
+<pre class="code" data-lang="javascript" data-title="server-with-route-subset.mjs">// server-with-route-subset.mjs
+// Boots the app but only mounts the routes listed in ROUTES env var.
+//
+// In your app code, separate route registration from server start:
+//   export const allRoutes = [
+//     { path: '/api/users',    handler: userRouter },
+//     { path: '/api/products', handler: productRouter },
+//     ...
+//   ];
+//
+import { createServer } from 'http';
+import express from 'express';
+import { allRoutes } from './app.js';
+
+const SUBSET = (process.env.ROUTES || '').split(',').filter(Boolean);
+const routes = SUBSET.length
+  ? allRoutes.filter(r => SUBSET.includes(r.path))
+  : allRoutes;
+
+const app = express();
+for (const { path, handler } of routes) app.use(path, handler);
+app.get('/__health', (_req, res) => res.json({ ok: true, routes: routes.map(r => r.path) }));
+
+createServer(app).listen(3000, () => {
+  console.log(`Listening with ${routes.length} routes: ${routes.map(r=>r.path).join(',')}`);
+});
+</pre>
+
+<h3>The leak detector</h3>
+
+<pre class="code" data-lang="javascript" data-title="server-leak-bisect.mjs">#!/usr/bin/env node
+// server-leak-bisect.mjs
+// Binary-search across routes to find the one that leaks memory under load.
+//
+// USAGE:
+//   node server-leak-bisect.mjs '/api/users,/api/products,/api/orders,/api/auth,...'
+//
+import { spawn } from 'child_process';
+import { setTimeout as sleep } from 'timers/promises';
+
+const ROUTES = process.argv[2].split(',').filter(Boolean);
+const LEAK_MB_PER_MIN = Number(process.env.LEAK_MB_PER_MIN || 25);
+
+async function runOne(subset) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, ROUTES: subset.join(',') };
+    const server = spawn('node', ['server-with-route-subset.mjs'], { env, stdio: 'pipe' });
+    server.stderr.on('data', d => process.stderr.write(d));
+
+    let samples = [];
+    let load = null;
+
+    (async () => {
+      await sleep(1000); // let server boot
+      load = spawn('autocannon', ['-c', '50', '-d', '60', '-R', '500', 'http://localhost:3000'],
+                   { stdio: 'ignore' });
+
+      // Sample heap every 5s for 60s via /__health-extended? Simpler: poll RSS via /proc.
+      for (let t = 0; t < 60; t += 5) {
+        await sleep(5000);
+        try {
+          const status = await import('fs').then(fs => fs.promises.readFile(`/proc/${server.pid}/status`, 'utf8'));
+          const m = status.match(/VmRSS:\s+(\d+)/);
+          if (m) samples.push(Number(m[1]) / 1024); // MB
+        } catch {}
+      }
+
+      try { load.kill('SIGTERM'); } catch {}
+      try { server.kill('SIGTERM'); } catch {}
+
+      if (samples.length < 6) return reject(new Error('Not enough samples'));
+      const slope = (samples.at(-1) - samples[0]) / (samples.length * 5 / 60); // MB / min
+      resolve(slope);
+    })().catch(reject);
+  });
+}
+
+console.log(`Bisecting ${ROUTES.length} routes; leak threshold ${LEAK_MB_PER_MIN} MB/min`);
+
+let lo = 0, hi = ROUTES.length - 1;
+while (lo < hi) {
+  const mid = (lo + hi) >> 1;
+  const subset = ROUTES.slice(lo, mid + 1);
+  console.log(`subset [${lo}..${mid}]: ${subset.join(',')}`);
+  const slope = await runOne(subset);
+  console.log(`  slope: ${slope.toFixed(1)} MB/min`);
+  if (slope > LEAK_MB_PER_MIN) hi = mid; else lo = mid + 1;
+}
+console.log(`\nLeaking route: ${ROUTES[lo]}`);
+</pre>
+
+<h3>Once you have the route — find the line</h3>
+<p>Now <code>clinic heapprofiler</code> on the isolated route narrows further:</p>
+
+<pre class="code" data-lang="shell" data-title="clinic-heap.sh"># Profile only the suspect route.
+ROUTES="/api/orders" pnpm exec clinic heapprofiler -- node server-with-route-subset.mjs &
+sleep 2
+
+# Drive the route for 90 seconds.
+autocannon -c 30 -d 90 -R 200 http://localhost:3000/api/orders
+
+# Stop the server; clinic opens the heap profile in a browser.
+kill %1 2>/dev/null
+wait
+</pre>
+
+<p>In the clinic UI, sort by "retained" and look at the call stack. Almost always you'll find a closure capturing a request-scoped variable into a process-scoped Map.</p>
+</template>
+
+<template data-page-title="Bash — Simple to Intermediate" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Bash Bisection — Simple to Intermediate</h2>
+<p class="lede">Every Linux/macOS machine has Bash. The patterns on this page assume nothing else — no jq, no fd, just GNU coreutils and bash 4+. They are the bedrock you reach for when you're SSH'd into a stranger's box at 2am.</p>
+
+<h3>Level 1: a single-glob, single-predicate halver</h3>
+
+<pre class="code" data-lang="shell" data-title="bash-l1-halve.sh">#!/usr/bin/env bash
+# bash-l1-halve.sh
+# The smallest useful bisector. Halve a glob, run a predicate, narrow.
+# Bash 4+ required (for `shopt -s globstar`).
+
+set -euo pipefail
+shopt -s globstar nullglob
+
+PRED="${1:?usage: $0 <predicate> <glob>}"
+GLOB="${2:?missing glob}"
+
+# Bash's `**/` requires globstar; word-split on whitespace into an array.
+mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+echo "candidates: ${#FILES[@]}"
+
+lo=0; hi=$(( ${#FILES[@]} - 1 ))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  half=("${FILES[@]:lo:mid-lo+1}")
+  if $PRED "${half[@]}" >/dev/null 2>&1; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo "culprit: ${FILES[$lo]}"
+</pre>
+
+<h3>Level 2: <code>mapfile</code> from a command (no glob hard-coded)</h3>
+
+<pre class="code" data-lang="shell" data-title="bash-l2-mapfile.sh">#!/usr/bin/env bash
+# bash-l2-mapfile.sh
+# Source the candidate list from any command — git, find, etc.
+#
+# USAGE:
+#   ./bash-l2-mapfile.sh "git ls-files '*.svelte'" "pnpm exec svelte-check"
+set -euo pipefail
+
+LIST_CMD="${1:?usage: $0 <list-cmd> <predicate>}"
+PRED="${2:?missing predicate}"
+
+mapfile -t FILES < <(eval "$LIST_CMD" | sort -u)
+N="${#FILES[@]}"
+echo "Candidates: $N"
+
+# Process substitution `< <(…)` keeps the variables in the parent shell — a
+# pipeline `cmd | while read` would not, because the loop runs in a subshell
+# and its variable assignments would be lost. This is the most-asked Bash
+# bisection bug. Use < <(…), not | while.
+
+lo=0; hi=$((N - 1)); round=0
+while (( lo < hi )); do
+  round=$((round + 1))
+  mid=$(( (lo + hi) / 2 ))
+  half=("${FILES[@]:lo:mid-lo+1}")
+  printf 'round %2d  [%4d..%4d]  %d files  ' "$round" "$lo" "$mid" "${#half[@]}"
+  if $PRED "${half[@]}" >/dev/null 2>&1; then
+    echo "good"
+    lo=$((mid + 1))
+  else
+    echo "bad"
+    hi=$mid
+  fi
+done
+echo "==> culprit: ${FILES[$lo]}"
+</pre>
+
+<h3>Level 3: command substitution patterns you'll use a lot</h3>
+
+<pre class="code" data-lang="shell" data-title="bash-l3-patterns.sh">#!/usr/bin/env bash
+# A grab-bag of Bash idioms that come up constantly in bisection scripts.
+
+# 1) Read a list of files NUL-separated (handles spaces, newlines in names).
+mapfile -d '' -t FILES < <(git ls-files -z '*.svelte')
+
+# 2) Run a predicate against each file in parallel, fail-fast on first failure.
+printf '%s\0' "${FILES[@]}" | xargs -0 -n 1 -P 8 \
+  bash -c 'pnpm exec svelte-check --filter "$0" >/dev/null 2>&1 || { echo "FAIL: $0"; exit 1; }'
+
+# 3) Compute a SHA of a set of files (for memoization keys).
+KEY=$(printf '%s\n' "${FILES[@]}" | sort | sha256sum | cut -c1-12)
+
+# 4) Difference between two arrays (e.g. "all files except suspect set").
+all=( "${ALL_FILES[@]}" )
+suspects=( "${SUSPECTS[@]}" )
+others=()
+declare -A in_suspects
+for s in "${suspects[@]}"; do in_suspects["$s"]=1; done
+for f in "${all[@]}"; do [[ -z "${in_suspects[$f]:-}" ]] && others+=( "$f" ); done
+
+# 5) Run a command with a deadline.
+timeout 30s "$PRED" "$@"
+case $? in
+  0)   echo "passed";;
+  1)   echo "failed";;
+  124) echo "TIMED OUT — count as bad? or skip?";;
+esac
+
+# 6) Save & restore git state around any bisection that edits the worktree.
+trap 'git stash pop >/dev/null 2>&1 || true' EXIT
+git stash push -u -m "bisect-runtime" >/dev/null
+# … run experimental bisection that edits files …
+</pre>
+
+<h3>Level 4: a resumable bisector with state file</h3>
+
+<pre class="code" data-lang="shell" data-title="bash-l4-resumable.sh">#!/usr/bin/env bash
+# bash-l4-resumable.sh
+# A bisector that persists its (lo, hi) state to /tmp/bisect.state so you can
+# Ctrl-C, drink coffee, fix your predicate, and continue.
+#
+# USAGE:
+#   ./bash-l4-resumable.sh start "<list-cmd>" "<predicate>"
+#   ./bash-l4-resumable.sh continue
+#   ./bash-l4-resumable.sh status
+#   ./bash-l4-resumable.sh abort
+
+set -euo pipefail
+STATE="${BISECT_STATE:-/tmp/bisect.state}"
+
+cmd_start() {
+  local list_cmd="$1" pred="$2"
+  mapfile -t FILES < <(eval "$list_cmd" | sort -u)
+  printf '%s\n' "$pred"  > "$STATE.pred"
+  printf '%s\n' "${FILES[@]}" > "$STATE.files"
+  echo "0 $(( ${#FILES[@]} - 1 ))" > "$STATE.range"
+  echo "Started bisection over ${#FILES[@]} candidates."
+}
+
+cmd_continue() {
+  local pred=$(< "$STATE.pred")
+  mapfile -t FILES < "$STATE.files"
+  read lo hi < "$STATE.range"
+  while (( lo < hi )); do
+    local mid=$(( (lo + hi) / 2 ))
+    local half=("${FILES[@]:lo:mid-lo+1}")
+    if $pred "${half[@]}" >/dev/null 2>&1; then
+      lo=$((mid + 1))
+    else
+      hi=$mid
+    fi
+    echo "$lo $hi" > "$STATE.range"
+    printf '\rprogress: lo=%d hi=%d   ' "$lo" "$hi"
+  done
+  echo
+  echo "Culprit: ${FILES[$lo]}"
+  cmd_abort
+}
+
+cmd_status() {
+  [ -f "$STATE.range" ] || { echo "no active bisection"; return; }
+  read lo hi < "$STATE.range"
+  mapfile -t FILES < "$STATE.files"
+  echo "lo=$lo hi=$hi  remaining $((hi - lo + 1))/${#FILES[@]}"
+}
+
+cmd_abort() {
+  rm -f "$STATE".pred "$STATE".files "$STATE".range
+}
+
+"cmd_${1:?usage: start|continue|status|abort}" "${@:2}"
+</pre>
+</template>
+
+<template data-page-title="Bash — Advanced and Expert" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Bash Bisection — Advanced &amp; Expert Patterns</h2>
+<p class="lede">From here on we squeeze every last drop out of Bash: a reusable library with namerefs, parallel bisection of both halves at once, and proper signal/cleanup discipline you can drop into a production CI job.</p>
+
+<h3>A reusable library you can <code>source</code></h3>
+
+<pre class="code" data-lang="shell" data-title="bash-bisect.sh"># bash-bisect.sh — reusable bisection library.
+# Source it: `source ./bash-bisect.sh`
+# Then call: `bisect_array MY_ARRAY my_predicate`
+#
+# Predicate contract: receives the candidate subset as positional args.
+#   Returns 0 = good (subset clean), nonzero = bad (subset contains culprit).
+#
+# Saves state to a per-session temp file so SIGINT is recoverable.
+
+bisect_array() {
+  # Bash 4.3+ namerefs let the caller pass the array by name.
+  local -n _arr="$1"
+  local _pred="$2"
+  local _state="${BISECT_TMP:-/tmp}/bisect-$$-${1}.state"
+
+  local lo=0 hi=$(( ${#_arr[@]} - 1 )) mid round=0
+  if [ -f "$_state" ]; then
+    read lo hi < "$_state"
+    echo "resuming from saved state: lo=$lo hi=$hi"
+  fi
+
+  trap 'echo "$lo $hi" > "$_state"; echo "Saved state to $_state"; return 130' INT
+
+  while (( lo < hi )); do
+    round=$((round + 1))
+    mid=$(( (lo + hi) / 2 ))
+    local half=( "${_arr[@]:lo:mid-lo+1}" )
+    if "$_pred" "${half[@]}" >/dev/null 2>&1; then
+      lo=$((mid + 1))
+    else
+      hi=$mid
+    fi
+    printf '\rround %d  lo=%d hi=%d  ' "$round" "$lo" "$hi"
+  done
+  echo
+  echo "culprit: ${_arr[$lo]}"
+  rm -f "$_state"
+  trap - INT
+  printf '%s' "${_arr[$lo]}"
+}
+</pre>
+
+<h3>Using it</h3>
+
+<pre class="code" data-lang="shell" data-title="use-bash-bisect.sh">#!/usr/bin/env bash
+set -euo pipefail
+source ./bash-bisect.sh
+
+mapfile -t FILES < <(git ls-files '*.svelte' | sort)
+
+# Define your predicate as a function. The subset is in "$@".
+check() { pnpm exec svelte-check --filter "$@" >/dev/null 2>&1; }
+
+CULPRIT=$(bisect_array FILES check)
+echo "Will now fix: $CULPRIT"
+</pre>
+
+<h3>Expert: parallel "branchless" bisection</h3>
+<p>If CI minutes are abundant but wall-clock is precious, test <em>both halves</em> in parallel. The first to fail wins (and we know which half contains the culprit immediately).</p>
+
+<pre class="code" data-lang="shell" data-title="bash-parallel-bisect.sh">#!/usr/bin/env bash
+# bash-parallel-bisect.sh
+# Test both halves in parallel each round. ~2× wall-clock speedup, 2× compute.
+# Use only when each predicate call is independent and side-effect-free.
+set -euo pipefail
+
+PRED="${1:?usage: $0 <predicate> <list-cmd>}"
+LIST="${2:?missing list cmd}"
+
+mapfile -t F < <(eval "$LIST" | sort -u)
+lo=0; hi=$(( ${#F[@]} - 1 ))
+
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  L=( "${F[@]:lo:mid-lo+1}" )
+  U=( "${F[@]:mid+1:hi-mid}" )
+
+  # Run both in parallel; capture each return code.
+  $PRED "${L[@]}" >/tmp/bi-L.log 2>&1 & PL=$!
+  $PRED "${U[@]}" >/tmp/bi-U.log 2>&1 & PU=$!
+
+  # Wait for the FIRST to finish.
+  wait -n
+  if ! kill -0 "$PL" 2>/dev/null; then
+    wait "$PL"; rcL=$?
+    # If lower is bad, we already know what to do — kill upper.
+    if (( rcL != 0 )); then kill "$PU" 2>/dev/null; wait "$PU" 2>/dev/null; hi=$mid; continue; fi
+    wait "$PU"; rcU=$?
+  else
+    wait "$PU"; rcU=$?
+    if (( rcU != 0 )); then kill "$PL" 2>/dev/null; wait "$PL" 2>/dev/null; lo=$((mid + 1)); continue; fi
+    wait "$PL"; rcL=$?
+  fi
+
+  # Both finished. By the bisection invariant exactly one is bad.
+  if (( rcL != 0 && rcU == 0 )); then hi=$mid
+  elif (( rcL == 0 && rcU != 0 )); then lo=$((mid + 1))
+  else echo "Invariant broken at round $mid — both halves $((rcL==0?good:bad))/$((rcU==0?good:bad))"; exit 2
+  fi
+done
+echo "culprit: ${F[$lo]}"
+</pre>
+
+<h3>Expert: bisection over <em>configurations</em>, not just lists</h3>
+<p>The set you're searching doesn't have to be linear. If you have N independent boolean flags, the search space is 2^N — but it's still a lattice you can bisect by halving the "on" set each round. Useful for finding which combination of env vars, feature flags, or build options reproduces a bug.</p>
+
+<pre class="code" data-lang="shell" data-title="bash-flag-bisect.sh">#!/usr/bin/env bash
+# bash-flag-bisect.sh
+# All N flags on → bug present. All off → bug absent.
+# Find the SMALLEST subset of flags whose all-on state reproduces.
+#
+# Strategy: 1-minimal search via Delta Debugging-style halving:
+#   1) Test lower half ON, upper half OFF. If reproduces → recurse into lower.
+#   2) If not, test upper half ON. If reproduces → recurse into upper.
+#   3) Else neither half alone reproduces → bug needs flags from BOTH halves;
+#      keep upper half pinned ON and bisect within lower half for the partner.
+#
+set -euo pipefail
+FLAGS=( "$@" )
+
+reproduces() {
+  local env=""
+  for f in "$@"; do env+="$f=1 "; done
+  eval "$env pnpm test --run >/dev/null 2>&1" && return 1 || return 0
+}
+
+# Δ-debug style recursive minimization.
+ddmin() {
+  local -a S=( "$@" )
+  local n=2
+  while (( ${#S[@]} > 1 )); do
+    local size=$(( (${#S[@]} + n - 1) / n ))
+    local found=0
+    for (( i = 0; i < ${#S[@]}; i += size )); do
+      local subset=( "${S[@]:i:size}" )
+      local complement=( "${S[@]:0:i}" "${S[@]:i+size}" )
+      if reproduces "${subset[@]}"; then S=( "${subset[@]}" ); n=2; found=1; break
+      elif reproduces "${complement[@]}"; then S=( "${complement[@]}" ); n=$(( n - 1 )); found=1; break
+      fi
+    done
+    (( found )) || { (( n >= ${#S[@]} )) && break; n=$(( n * 2 )); (( n > ${#S[@]} )) && n=${#S[@]}; }
+  done
+  echo "Minimal failing set: ${S[*]}"
+}
+
+reproduces "${FLAGS[@]}" || { echo "All flags on does not reproduce."; exit 0; }
+ddmin "${FLAGS[@]}"
+</pre>
+<p>That last script is the famous Delta Debugging algorithm (Zeller, 1999), which generalizes bisection to non-monotonic, multi-cause failures. Keep it in your back pocket for the day plain bisection refuses to work.</p>
+</template>
+
+<template data-page-title="Zsh — Simple to Intermediate" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Zsh Bisection — Simple to Intermediate</h2>
+<p class="lede">Zsh has features Bash lacks — recursive globs out of the box, glob qualifiers, ergonomic array slicing, indirect expansion. The same bisection techniques become a third the code. This page is the friendly tour.</p>
+
+<h3>Level 1: the simplest possible halver, zsh-style</h3>
+
+<pre class="code" data-lang="shell" data-title="zsh-l1-halve.zsh">#!/usr/bin/env zsh
+# zsh-l1-halve.zsh
+# Zsh has `**/` as a builtin recursive glob — no `shopt` needed.
+# Glob qualifiers (the (.) below) restrict to regular files; very handy.
+
+set -eu
+
+local pred="${1:?usage: $0 <predicate> <glob>}"
+local glob="${2:?missing glob}"
+
+# Expand the glob into an array. (.) = only regular files.
+local -a files
+files=(${~glob}(.N))   # ~ enables glob expansion of a variable; N = nullglob
+files=(${(o)files})    # sort alphabetically (the (o) parameter expansion flag)
+
+echo "candidates: ${#files}"
+
+# Zsh arrays are 1-indexed by default. $files[1,$mid] is a slice.
+local lo=1 hi=${#files} mid
+while (( lo < hi )); do
+  (( mid = (lo + hi) / 2 ))
+  if ${=pred} ${files[lo,mid]} >/dev/null 2>&1; then
+    (( lo = mid + 1 ))
+  else
+    hi=$mid
+  fi
+done
+print -r -- "culprit: ${files[lo]}"
+</pre>
+
+<h3>Where zsh syntax beats bash</h3>
+<table class="cmp">
+<tr><th>Task</th><th>Bash</th><th>Zsh</th></tr>
+<tr><td>Recursive glob</td><td><code>shopt -s globstar; src/**/*.ts</code></td><td><code>src/**/*.ts</code> (built-in)</td></tr>
+<tr><td>Only regular files</td><td>Pipe through <code>find … -type f</code></td><td>Glob qualifier <code>(.)</code></td></tr>
+<tr><td>Only files modified in last day</td><td>find <code>-mtime -1</code></td><td><code>**/*(.m-1)</code></td></tr>
+<tr><td>Sort glob results</td><td>Pipe through <code>sort</code></td><td><code>${(o)files}</code> param flag</td></tr>
+<tr><td>Array slice</td><td><code>"${arr[@]:lo:n}"</code></td><td><code>$arr[lo,hi]</code> (inclusive both ends)</td></tr>
+<tr><td>Lines into array</td><td><code>mapfile -t a &lt; &lt;(cmd)</code></td><td><code>a=(${(f)"$(cmd)"})</code></td></tr>
+<tr><td>Indirect variable</td><td><code>declare -n; ${!name}</code></td><td><code>${(P)name}</code></td></tr>
+<tr><td>Push to history</td><td>(nothing builtin)</td><td><code>print -s "..."</code></td></tr>
+</table>
+
+<h3>Level 2: glob qualifiers — the secret weapon</h3>
+
+<pre class="code" data-lang="shell" data-title="zsh-l2-qualifiers.zsh">#!/usr/bin/env zsh
+# zsh-l2-qualifiers.zsh
+# Glob qualifiers (in parens after the glob) filter the result set
+# WITHOUT needing find/xargs. Composable, very fast.
+
+# Every .svelte file:
+files=( src/lib/**/*.svelte(.) )
+
+# Only files modified in the last hour:
+recent=( src/lib/**/*.svelte(.mh-1) )
+
+# Only files larger than 50KB:
+big=( src/lib/**/*.svelte(.Lk+50) )
+
+# Only files in directories whose name ends in /components/:
+comps=( src/lib/**/components/*.svelte(.) )
+
+# Sorted oldest-first, exclude tests, limit to first 200:
+candidates=( src/lib/**/*.svelte(.om^*.test.*[1,200]) )
+
+# Files NOT containing 'TODO' (uses zsh's `e` qualifier with a code expr):
+clean=( src/lib/**/*.svelte(.e:'! grep -q TODO $REPLY':) )
+
+print -l ${#files} ${#recent} ${#big} ${#comps} ${#candidates} ${#clean}
+</pre>
+
+<p>Each of these would be a multi-line find/grep pipeline in bash. In zsh it's one expression — and crucially, it's an array literal you can plug straight into a bisector.</p>
+
+<h3>Level 3: a clean, idiomatic bisector</h3>
+
+<pre class="code" data-lang="shell" data-title="zsh-l3-clean.zsh">#!/usr/bin/env zsh
+# zsh-l3-clean.zsh
+# Idiomatic zsh bisector. Uses 1-indexed slicing for readability.
+set -eu
+
+bisect() {
+  local pred="$1"
+  shift
+  local -a F
+  F=( "$@" )
+
+  local lo=1 hi=${#F} mid round=0
+  while (( lo < hi )); do
+    (( round++ ))
+    (( mid = (lo + hi) / 2 ))
+    local -a half
+    half=( $F[lo,mid] )
+    printf 'round %2d  [%4d..%4d]  %3d items  ' $round $lo $mid ${#half}
+    if ${=pred} $half >/dev/null 2>&1; then
+      print good
+      (( lo = mid + 1 ))
+    else
+      print bad
+      hi=$mid
+    fi
+  done
+  print -r -- "culprit: $F[lo]"
+}
+
+# Read newline-delimited input into an array via the (f) parameter flag.
+files=( ${(f)"$(git ls-files '*.svelte')"} )
+bisect "pnpm exec svelte-check --filter" $files
+</pre>
+
+<h3>The (f) parameter expansion flag — explained</h3>
+<p><code>${(f)"$(cmd)"}</code> splits the captured stdout on <em>newlines</em>, into an array. The double-quoting prevents word-splitting on spaces inside filenames. There is no Bash equivalent that's both safe and one line; you need <code>mapfile</code> or a temporary file. This is one of zsh's quietly enormous wins.</p>
+</template>
+
+<template data-page-title="Zsh — Advanced and Expert" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Zsh Bisection — Advanced &amp; Expert Patterns</h2>
+<p class="lede">The same expert ideas as the Bash chapter, but in idiomatic zsh: indirect array expansion, ZLE integration so a resumable bisection lands as a pre-filled command line, and <code>zpty</code> for driving an interactive REPL.</p>
+
+<h3>The reusable zsh library</h3>
+
+<pre class="code" data-lang="shell" data-title="zsh-bisect.zsh"># zsh-bisect.zsh — sourceable bisection library for zsh.
+#
+# Usage:
+#   source ./zsh-bisect.zsh
+#   files=( ${(f)"$(git ls-files '*.svelte')"} )
+#   check() { pnpm exec svelte-check --filter "$@" >/dev/null 2>&1; }
+#   bisect_array files check
+
+bisect_array() {
+  local _name="$1" _pred="$2"
+  # (P)name = expand "name" indirectly. The ${(@P)…} keeps array semantics.
+  local -a _arr
+  _arr=( "${(@P)_name}" )
+
+  local _state="${BISECT_TMP:-/tmp}/zbisect-$$-${_name}.state"
+  local lo=1 hi=${#_arr} mid round=0
+
+  if [[ -f $_state ]]; then
+    read lo hi < $_state
+    print "resuming: lo=$lo hi=$hi"
+  fi
+
+  # On SIGINT, persist state AND push the resume command into history/ZLE so
+  # pressing Up + Enter continues the session.
+  TRAPINT() {
+    print "$lo $hi" > $_state
+    print -s "bisect_array $_name $_pred  # resume saved at $_state"
+    print "\nSaved state. Press Up-arrow to recall the resume command."
+    return 130
+  }
+
+  while (( lo < hi )); do
+    (( round++ ))
+    (( mid = (lo + hi) / 2 ))
+    local -a half
+    half=( $_arr[lo,mid] )
+    if $_pred $half >/dev/null 2>&1; then
+      (( lo = mid + 1 ))
+    else
+      hi=$mid
+    fi
+    printf '\rround %2d  lo=%-4d hi=%-4d ' $round $lo $hi
+  done
+  print
+  print -r -- "culprit: $_arr[lo]"
+  rm -f $_state
+  unfunction TRAPINT
+}
+</pre>
+
+<h3>Auto-save on every <code>precmd</code></h3>
+<p>For very long sessions, save bisection state automatically at each prompt — survives even a closed terminal.</p>
+
+<pre class="code" data-lang="shell" data-title="zsh-autosave.zsh"># Drop into ~/.zshrc to auto-save bisection state at every prompt.
+typeset -g BISECT_AUTOSAVE=/tmp/bisect-autosave-$UID.state
+
+_bisect_autosave_precmd() {
+  [[ -n ${BISECT_LO:-} && -n ${BISECT_HI:-} ]] || return
+  print "$BISECT_LO $BISECT_HI" > $BISECT_AUTOSAVE
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _bisect_autosave_precmd
+</pre>
+
+<h3>Expert: bisecting an interactive REPL with <code>zpty</code></h3>
+<p>Suppose the bug is "after I run these 200 commands in <code>node --repl</code>, memory has grown 1 GB." You can't run a REPL non-interactively from bash without a pty allocation hack. Zsh has <code>zpty</code> builtin — and it makes this trivial.</p>
+
+<pre class="code" data-lang="shell" data-title="zsh-zpty-bisect.zsh">#!/usr/bin/env zsh
+# zsh-zpty-bisect.zsh
+# Bisect which line in a REPL transcript causes a leak/error.
+# Uses zsh's `zpty` to drive the REPL non-interactively.
+
+zmodload zsh/zpty
+zmodload zsh/datetime
+
+setopt extendedglob
+
+transcript=( ${(f)"$(< $1)"} )       # commands, one per line
+N=${#transcript}
+
+mem_after_lines() {
+  # Spawn node --repl in a pty, feed it $1 lines, query process.memoryUsage().
+  local -a lines
+  lines=( "$@" )
+  zpty -d repl 2>/dev/null
+  zpty repl 'node --interactive --no-warnings'
+  zpty -w repl ".clear"
+  for cmd in $lines; do
+    zpty -w repl "$cmd"
+  done
+  # Sentinel.
+  zpty -w repl 'console.log("__MEM__", process.memoryUsage().heapUsed)'
+  local out=""
+  zpty -r repl out '*__MEM__ *'
+  zpty -d repl
+  print -r -- "$out" | awk '/__MEM__/ { print $NF; exit }'
+}
+
+baseline=$(mem_after_lines)        # empty REPL baseline
+LEAK_BYTES=${LEAK_BYTES:-50_000_000}
+
+lo=1; hi=$N
+while (( lo < hi )); do
+  (( mid = (lo + hi) / 2 ))
+  half=( $transcript[lo,mid] )
+  bytes=$(mem_after_lines $half)
+  growth=$(( bytes - baseline ))
+  print "[$lo..$mid] heap: ${(l:12:)bytes}  growth ${(l:10:)growth}"
+  if (( growth > LEAK_BYTES )); then hi=$mid; else (( lo = mid + 1 )); fi
+done
+print "leaking command: $transcript[lo]"
+</pre>
+
+<h3>Expert: function-style predicate with rich return values</h3>
+<p>Sometimes a predicate should return more than yes/no — it should return the exact error message so the bisector can log it. Zsh's <code>=()</code> process substitution writes function output to a temp file you can grep:</p>
+
+<pre class="code" data-lang="shell" data-title="zsh-process-sub.zsh">#!/usr/bin/env zsh
+# Capture predicate stdout to a temp file via process substitution, then
+# extract the salient line for the bisection log.
+
+predicate() {
+  pnpm exec svelte-check --output machine "$@"
+}
+
+bisect_with_diag() {
+  local -a F=( "$@" )
+  local lo=1 hi=${#F} mid
+  while (( lo < hi )); do
+    (( mid = (lo + hi) / 2 ))
+    local half=( $F[lo,mid] )
+
+    # =(predicate "$half") expands to a tmpfile path containing the stdout.
+    local diag=$(awk -F$'\t' '$1=="ERROR"' =(predicate $half))
+
+    if [[ -z $diag ]]; then
+      (( lo = mid + 1 ))
+    else
+      print "round at [$lo..$mid]: $diag"
+      hi=$mid
+    fi
+  done
+  print "culprit: $F[lo]"
+}
+</pre>
+</template>
+
+<template data-page-title="Bisecting in CI" data-part="VIII — Real-World">
+<span class="badge">Part VIII · Real-World Patterns</span>
+<h2 class="page-title">Bisecting in CI — Automated Nightly Hunts</h2>
+<p class="lede">The most valuable bisection is the one you didn't have to start: CI runs it for you when the nightly test fails, and posts the culprit + author straight to the PR. Here's a complete GitHub Actions workflow that does it.</p>
+
+<h3>The workflow</h3>
+
+<pre class="code" data-lang="yaml" data-title=".github/workflows/auto-bisect.yml">name: Auto-bisect on nightly failure
+
+on:
+  workflow_run:
+    workflows: ["Nightly E2E"]
+    types: [completed]
+
+jobs:
+  bisect:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # need full history for bisect
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Find last green nightly
+        id: last_green
+        run: |
+          # Find the most recent successful run of the Nightly E2E workflow.
+          GOOD_SHA=$(gh run list \
+            --workflow="Nightly E2E" --status success --limit 1 \
+            --json headSha --jq '.[0].headSha')
+          echo "good_sha=$GOOD_SHA" >> "$GITHUB_OUTPUT"
+          echo "bad_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "Bisecting $GOOD_SHA..${{ github.sha }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write predicate
+        run: |
+          cat > bisect-predicate.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+          pnpm build >/dev/null 2>&1 || exit 125
+          pnpm e2e --reporter=line >/tmp/e2e.log 2>&1
+          rc=$?
+          [ $rc -eq 0 ] && exit 0 || exit 1
+          EOF
+          chmod +x bisect-predicate.sh
+
+      - name: Run bisection
+        id: bisect
+        run: |
+          git config user.email bisect-bot@noreply.github
+          git config user.name bisect-bot
+          git bisect start ${{ steps.last_green.outputs.bad_sha }} ${{ steps.last_green.outputs.good_sha }}
+          git bisect run ./bisect-predicate.sh | tee /tmp/bisect.log || true
+          # Pull the culprit sha out of the log.
+          CULPRIT=$(grep -E '[0-9a-f]{7,40} is the first bad commit' /tmp/bisect.log \
+                    | awk '{print $1}' | head -n 1)
+          echo "culprit=$CULPRIT" >> "$GITHUB_OUTPUT"
+          git bisect reset
+
+      - name: Post culprit to PR
+        if: steps.bisect.outputs.culprit != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CULPRIT: ${{ steps.bisect.outputs.culprit }}
+        run: |
+          # Find the PR that introduced this commit (squash-merge → PR number in message).
+          PR_NUM=$(git log -1 --format=%s "$CULPRIT" | grep -oE '#[0-9]+' | tr -d '#' | head -n1)
+          AUTHOR=$(git log -1 --format='%an <%ae>' "$CULPRIT")
+          SHORT=$(git log -1 --format='%h %s' "$CULPRIT")
+          BODY="Automated bisection identified \`$SHORT\` as the first bad commit.
+
+          Author: $AUTHOR
+          Commit: $CULPRIT
+
+          Triggering workflow: ${{ github.event.workflow_run.html_url }}
+          E2E log: see workflow artifacts."
+
+          if [ -n "$PR_NUM" ]; then
+            gh pr comment "$PR_NUM" --body "$BODY"
+          else
+            gh issue create --title "Nightly E2E broke at $SHORT" --body "$BODY" --label bisection,nightly
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bisect-logs
+          path: |
+            /tmp/bisect.log
+            /tmp/e2e.log
+</pre>
+
+<h3>Design notes</h3>
+<ul>
+  <li><strong>Find <em>last green</em>, not "the day before."</strong> Calendar bisection (yesterday → today) breaks on weekends and holidays. Always anchor to the most recent green run of the same workflow.</li>
+  <li><strong>Cap with <code>timeout-minutes</code>.</strong> If something goes wrong, the runner shuts down rather than burning your monthly minute budget.</li>
+  <li><strong>Skip on install/build failures.</strong> Don't let a transient registry outage convict an innocent commit.</li>
+  <li><strong>Post to the PR, not main.</strong> The author who broke things gets a notification in context, not a global Slack ping.</li>
+  <li><strong>Always upload artifacts.</strong> Even if bisection succeeds, the logs help confirm the verdict.</li>
+</ul>
+
+<h3>Local mirror of the same loop</h3>
+<p>Sometimes the cloud CI runner can't reproduce a bug that only shows up on Linux ARM. Drop this into a tmux session on a dedicated machine and walk away:</p>
+
+<pre class="code" data-lang="shell" data-title="local-nightly-bisect.sh">#!/usr/bin/env bash
+# Reproduce the CI bisection locally. Keeps logs in ~/.cache/bisect/.
+set -euo pipefail
+
+BAD="${1:-HEAD}"
+GOOD="${2:?usage: $0 <bad> <good>}"
+LOG=~/.cache/bisect/run-$(date +%Y%m%d-%H%M%S)
+mkdir -p "$LOG"
+
+git bisect start "$BAD" "$GOOD"
+git bisect run bash -c '
+  set -uo pipefail
+  pnpm install --frozen-lockfile --prefer-offline > "'"$LOG"'/install.$(git rev-parse --short HEAD).log" 2>&1 || exit 125
+  pnpm build > "'"$LOG"'/build.$(git rev-parse --short HEAD).log" 2>&1 || exit 125
+  pnpm e2e --reporter=line > "'"$LOG"'/e2e.$(git rev-parse --short HEAD).log" 2>&1
+' 2>&1 | tee "$LOG/bisect.log"
+git bisect reset
+echo "Logs: $LOG"
+</pre>
+</template>
+
+<template data-page-title="Bisecting Service Versions" data-part="VIII — Real-World">
+<span class="badge">Part VIII · Real-World Patterns</span>
+<h2 class="page-title">Bisecting Across Microservice Versions</h2>
+<p class="lede">Your e-commerce app is 12 services. Yesterday end-to-end worked. Today it doesn't. Each service has bumped image tags independently. Bisection across versions in N services is 2^N combinations — but if only one rolled back will fix it, you can still find that one in N rounds.</p>
+
+<h3>The bisection plane</h3>
+<p>Imagine a 1-D number line where 0 = "every service at yesterday's tag" and 1 = "every service at today's tag." Most points on that line will work; one will start failing. <em>Where</em> on the line is the culprit?</p>
+<p>The catch: each service's bump is a discrete change. You walk the line one service at a time, in a deterministic order, and bisect over that order.</p>
+
+<h3>Practical bisector for a Helm/Kustomize fleet</h3>
+
+<pre class="code" data-lang="shell" data-title="bisect-fleet.sh">#!/usr/bin/env bash
+# bisect-fleet.sh
+# Find which service's image bump broke a multi-service environment.
+#
+# INPUT FILES:
+#   old-tags.env, new-tags.env — each like:
+#       checkout=ghcr.io/acme/checkout:1.4.2
+#       payments=ghcr.io/acme/payments:2.0.0
+#       ...
+#
+# USAGE:
+#   ./bisect-fleet.sh old-tags.env new-tags.env "./run-e2e.sh"
+#
+set -euo pipefail
+OLD_FILE="$1"; NEW_FILE="$2"; PREDICATE="$3"
+
+mapfile -t SERVICES < <(awk -F= '{print $1}' "$OLD_FILE" | sort)
+N="${#SERVICES[@]}"
+declare -A OLD NEW
+while IFS='=' read -r k v; do OLD["$k"]="$v"; done < "$OLD_FILE"
+while IFS='=' read -r k v; do NEW["$k"]="$v"; done < "$NEW_FILE"
+
+apply_tags() {
+  local -a chosen_new=( "$@" )
+  declare -A is_new
+  for s in "${chosen_new[@]}"; do is_new["$s"]=1; done
+  # Build a values.yaml override with one image per service.
+  : > /tmp/overrides.yaml
+  for s in "${SERVICES[@]}"; do
+    local tag="${OLD[$s]}"; [[ -n "${is_new[$s]:-}" ]] && tag="${NEW[$s]}"
+    cat >> /tmp/overrides.yaml <<YAML
+$s:
+  image: ${tag%:*}
+  tag: ${tag##*:}
+YAML
+  done
+  helm upgrade --install platform ./chart -f /tmp/overrides.yaml --wait --timeout 5m
+}
+
+# Confirm endpoints of the search:
+apply_tags                          # all OLD → should pass
+$PREDICATE || { echo "Baseline broken; not a bump regression"; exit 2; }
+apply_tags "${SERVICES[@]}"         # all NEW → should fail
+$PREDICATE && { echo "All-new passes; nothing to find"; exit 0; }
+
+# Bisect.
+lo=0; hi=$((N - 1))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  new_set=( "${SERVICES[@]:0:mid+1}" )
+  apply_tags "${new_set[@]}"
+  echo "applying NEW for [0..$mid] (${#new_set[@]} services)"
+  if $PREDICATE; then
+    lo=$((mid + 1))    # this prefix is fine; bad bump is later
+  else
+    hi=$mid            # bad bump is within or before mid
+  fi
+done
+echo "Culprit service: ${SERVICES[$lo]}"
+echo "Old: ${OLD[${SERVICES[$lo]}]}"
+echo "New: ${NEW[${SERVICES[$lo]}]}"
+</pre>
+
+<h3>When versions interact (canary required)</h3>
+<p>If service A v2 only breaks when paired with service B v3, single-service bisection finds the wrong culprit. Detect with a "single-service rollback" sanity check:</p>
+
+<pre class="code" data-lang="shell" data-title="confirm-fleet-culprit.sh"># After the bisector reports a culprit, confirm by ROLLING BACK ONLY that one
+# service. If the bug disappears, it really is the culprit. If it doesn't,
+# you have an interaction bug — fall back to delta debugging.
+SVC="$1"
+helm upgrade --install platform ./chart \
+  --reuse-values \
+  --set "$SVC.tag=$(grep -oE '[^:]+$' <<< "${OLD[$SVC]}")" \
+  --wait
+./run-e2e.sh && echo "CONFIRMED: $SVC was the sole cause" \
+              || echo "INTERACTION — try delta-debugging the full bump set"
+</pre>
+
+<h3>For non-Helm stacks</h3>
+<p>The script generalizes. Replace <code>helm upgrade</code> with <code>kubectl apply -k</code> (Kustomize), <code>nomad job run</code>, <code>docker-compose up -d --build</code>, or even <code>aws ecs update-service</code>. The bisection logic is unchanged.</p>
+</template>
+
+<template data-page-title="Bisecting Config, Data, Flags" data-part="VIII — Real-World">
+<span class="badge">Part VIII · Real-World Patterns</span>
+<h2 class="page-title">Bisecting Non-Code: Configs, Data Rows, and Feature Flags</h2>
+<p class="lede">Bisection isn't a code-only technique. Some of its highest-leverage uses are in data: which row of a CSV crashes ingestion, which feature flag combination triggers a bug, which environment variable shifts behavior.</p>
+
+<h3>Bisecting a broken CSV ingest</h3>
+
+<pre class="code" data-lang="shell" data-title="bisect-csv.sh">#!/usr/bin/env bash
+# bisect-csv.sh
+# Find the row in a CSV that crashes your ingest job.
+# Preserves the header row; bisects only the data rows.
+set -euo pipefail
+
+CSV="${1:?usage: $0 <csv> <ingest-cmd>}"
+INGEST="${2:?missing ingest command}"
+
+HEADER=$(head -n 1 "$CSV")
+mapfile -t ROWS < <(tail -n +2 "$CSV")
+N="${#ROWS[@]}"
+echo "CSV has $N data rows"
+
+slice_to_file() {
+  local from="$1" to="$2"
+  printf '%s\n' "$HEADER" > /tmp/bisect.csv
+  for (( i = from; i <= to; i++ )); do printf '%s\n' "${ROWS[$i]}" >> /tmp/bisect.csv; done
+}
+
+# Sanity check: full file fails, empty file succeeds.
+slice_to_file 0 $((N - 1))
+$INGEST /tmp/bisect.csv && { echo "Full file passes; not reproducing"; exit 0; }
+slice_to_file 0 -1
+$INGEST /tmp/bisect.csv || { echo "Empty file fails; ingest is broken regardless"; exit 2; }
+
+lo=0; hi=$((N - 1))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  slice_to_file "$lo" "$mid"
+  if $INGEST /tmp/bisect.csv >/dev/null 2>&1; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo
+echo "Culprit row $lo:"
+echo "$HEADER"
+echo "${ROWS[$lo]}"
+</pre>
+
+<h3>Bisecting a feature flag combination</h3>
+<p>You have 10 flags. Yesterday all on, today some came on, some off. The bug appears with the new set. <em>Which</em> flag (or pair) is responsible? Use delta debugging — guaranteed to find a minimal failing set, not just any flag:</p>
+
+<pre class="code" data-lang="javascript" data-title="flag-ddmin.mjs">#!/usr/bin/env node
+// flag-ddmin.mjs
+// Delta-debugging over feature flags. Finds the smallest flag set whose
+// "on" state reproduces the bug. Works even when the bug requires several
+// flags together (not a clean monotonic switch).
+//
+// PREDICATE: a shell command that exits 0 iff the bug REPRODUCES under the
+//            flags exported as FF_<name>=1.
+//
+// USAGE:
+//   node flag-ddmin.mjs '["FF_NEW_CART","FF_FAST_CHECKOUT","FF_ML_RANK", ...]' "./run-bug-check.sh"
+
+import { spawnSync } from 'child_process';
+
+const FLAGS = JSON.parse(process.argv[2]);
+const PRED = process.argv[3];
+
+function reproduces(subset) {
+  const env = { ...process.env };
+  for (const f of FLAGS) delete env[f];
+  for (const f of subset) env[f] = '1';
+  return spawnSync('sh', ['-c', PRED], { env, stdio: 'ignore' }).status === 0;
+}
+
+if (!reproduces(FLAGS)) { console.log('Full set does not reproduce.'); process.exit(0); }
+
+let S = [...FLAGS];
+let n = 2;
+while (S.length >= 2) {
+  const chunkSize = Math.ceil(S.length / n);
+  let found = false;
+  for (let i = 0; i < S.length; i += chunkSize) {
+    const subset = S.slice(i, i + chunkSize);
+    const complement = [...S.slice(0, i), ...S.slice(i + chunkSize)];
+    if (reproduces(subset))      { S = subset;     n = 2;          found = true; break; }
+    if (reproduces(complement))  { S = complement; n = Math.max(n - 1, 2); found = true; break; }
+  }
+  if (!found) {
+    if (n >= S.length) break;
+    n = Math.min(n * 2, S.length);
+  }
+}
+console.log('1-minimal failing flag set:', S);
+</pre>
+
+<h3>Bisecting environment variables</h3>
+
+<pre class="code" data-lang="shell" data-title="bisect-env.sh">#!/usr/bin/env bash
+# bisect-env.sh
+# Capture a working env and a broken env, find which variable broke things.
+#
+# To capture: `env > good.env`  on a healthy machine; `env > bad.env` on a sick one.
+set -euo pipefail
+
+GOOD="$1"; BAD="$2"; PRED="$3"
+
+# Variables that DIFFER between the two envs.
+diff_keys=$(comm -13 <(sort "$GOOD") <(sort "$BAD") | awk -F= '{print $1}' | sort -u)
+mapfile -t VARS < <(echo "$diff_keys")
+echo "Differing env vars: ${#VARS[@]}"
+
+declare -A BAD_VAL
+while IFS='=' read -r k v; do BAD_VAL["$k"]="$v"; done < "$BAD"
+
+# Bisect: start from GOOD env, progressively apply BAD overrides.
+run_with() {
+  local -a apply=( "$@" )
+  ( set -a
+    while IFS='=' read -r k v; do export "$k=$v"; done < "$GOOD"
+    for k in "${apply[@]}"; do export "$k=${BAD_VAL[$k]}"; done
+    bash -c "$PRED"
+  )
+}
+
+lo=0; hi=$(( ${#VARS[@]} - 1 ))
+while (( lo < hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  apply=( "${VARS[@]:0:mid+1}" )
+  if run_with "${apply[@]}" >/dev/null 2>&1; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo "Culprit env var: ${VARS[$lo]}"
+echo "  good value: $(grep -E "^${VARS[$lo]}=" "$GOOD" | head -n1)"
+echo "  bad value:  ${VARS[$lo]}=${BAD_VAL[${VARS[$lo]}]}"
+</pre>
+</template>
+
+<template data-page-title="Anti-Patterns and Knowing When to Stop" data-part="VIII — Real-World">
+<span class="badge">Part VIII · Real-World Patterns</span>
+<h2 class="page-title">Anti-Patterns — When Not to Bisect</h2>
+<p class="lede">Bisection is so satisfying that engineers reach for it reflexively. But it isn't always the right tool. Here is the principal-engineer view: the failure modes, the smell tests, and the principled alternatives.</p>
+
+<h3>The four shapes bisection cannot help with</h3>
+
+<h4>1. Non-monotonic bugs (the "step function with steps in both directions")</h4>
+<p>The bug appears at commit C, disappears at D, reappears at E, disappears at F. There is no single "first bad" commit. <strong>What to do instead:</strong> run the predicate at every commit (linear scan) and plot pass/fail. Pattern-match what you see: it's usually two independent commits and a dependency between them.</p>
+
+<h4>2. Heisenbugs (vanish under instrumentation)</h4>
+<p>The bug stops reproducing the moment you attach a debugger, slow down the predicate, or add logging. Bisection's hermetic-predicate practice makes this worse — pinning a deterministic random seed can mask a race condition. <strong>What to do instead:</strong> reproduce in a controlled chaos environment (rr, Pernosco, eBPF tracing) and find a stable predicate first.</p>
+
+<h4>3. Environmental drift (the bug isn't in your code at all)</h4>
+<p>Bisection between v1.4 and HEAD says "this commit is bad" — but the same commit was green a week ago. Some external thing changed: an upstream dependency on the registry, a CI runner image, a TLS root cert expired. <strong>Sanity test:</strong> after the bisector reports a culprit, check out a known-good past commit and re-run the predicate. If it now fails too, your environment changed, not your code.</p>
+
+<h4>4. Multi-cause bugs that bisection over-attributes</h4>
+<p>Commits A, B, C each contribute to a failure that only manifests when all three are present. Bisection lands on whichever was committed last. <strong>What to do instead:</strong> delta debugging. The <code>flag-ddmin.mjs</code> script from the previous page generalizes to any set; if you suspect interaction, run it over the suspect range.</p>
+
+<h3>The smell tests</h3>
+<table class="cmp">
+<tr><th>If you see…</th><th>It probably means…</th><th>Do this</th></tr>
+<tr><td>"good after bad" in the bisect log</td><td>Flaky predicate or non-monotonic bug</td><td>Repeat the predicate 5× on a single commit; require ≥4/5 agreement to mark.</td></tr>
+<tr><td>Bisection takes more rounds than log₂(N)</td><td>Lots of skip-returning commits</td><td>Tighten the range, or skip a known-broken cluster explicitly.</td></tr>
+<tr><td>The culprit commit has zero changes near the failing area</td><td>The change is in a config/lockfile, OR you have a transitive dep bump</td><td>Inspect <code>pnpm-lock.yaml</code> and <code>*.config.*</code> as much as <code>*.ts</code>.</td></tr>
+<tr><td>Predicate output looks different on every run</td><td>You haven't pinned the environment</td><td>Use the <code>hermetic-predicate.sh</code> template; pin Node, TZ, locale, seeds.</td></tr>
+<tr><td>You're more than 30 rounds in</td><td>Your search space wasn't actually that big, or your predicate is broken</td><td>Stop. Print every decision so far; verify them by hand.</td></tr>
+</table>
+
+<h3>Verifying the verdict</h3>
+<p>When the bisector returns an answer, don't just trust it. Confirm:</p>
+
+<pre class="code" data-lang="shell" data-title="verify-culprit.sh">#!/usr/bin/env bash
+# verify-culprit.sh
+# Given the SHA the bisector returned, confirm it really is the culprit.
+set -euo pipefail
+CULPRIT="$1"
+
+# 1) Predicate must FAIL at the culprit.
+git checkout "$CULPRIT"
+./bisect-predicate.sh && { echo "WAT: culprit passes the predicate"; exit 2; }
+
+# 2) Predicate must PASS at the culprit's PARENT.
+git checkout "$CULPRIT^"
+./bisect-predicate.sh || { echo "WAT: parent already failing — bisection was off"; exit 2; }
+
+# 3) Reverting the culprit on top of HEAD must make HEAD pass.
+git checkout -
+git revert --no-edit "$CULPRIT"
+./bisect-predicate.sh && echo "CONFIRMED: revert fixes HEAD" || echo "Revert does NOT fix — interaction bug"
+git reset --hard HEAD^   # undo the revert
+</pre>
+
+<h3>Knowing when to stop bisecting and start <em>reading code</em></h3>
+<p>If the search space is fewer than 5 candidates, <code>git log -p</code> is faster than another bisection round. If a glance at the diff reveals the bug, you don't need a predicate.</p>
+<p>Bisection is a search algorithm. Like all search, it's beaten by knowledge. Combine it with reading. A principal engineer reaches for bisection when the search space is too big to scan and the bug is too repeatable to chase with a debugger — and reaches for code-reading the moment bisection narrows the field to a handful.</p>
+
+<h3>Final checklist</h3>
+<div class="callout good">
+<div class="callout-title">Before you bisect</div>
+<ul>
+  <li>Have I confirmed the bug reproduces on HEAD reliably (3 of 3 runs)?</li>
+  <li>Have I confirmed the bug <em>does not</em> reproduce on the "known good" reference reliably (3 of 3)?</li>
+  <li>Is my predicate hermetic (pinned Node/locale/timezone/seeds)?</li>
+  <li>Does my predicate exit 125 on environment/build problems, not 1?</li>
+  <li>Have I cleared caches that survive checkouts (<code>.vite</code>, <code>.svelte-kit</code>, <code>node_modules/.cache</code>)?</li>
+  <li>Do I have a plan for restoring a broken worktree if Ctrl-C happens mid-run?</li>
+</ul>
+</div>
+<p>If any of those is "no", fix it before you reach for <code>git bisect start</code>. Future-you (and the on-call rotation) will thank you.</p>
+<p style="margin-top: 30px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something.</p>
+</template>
+
+<!-- ============================================================
+     RUNTIME — Monaco loader, router, nav, copy buttons.
+     ============================================================ -->
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+<script>
+(function () {
+  // ---- collect pages from <template> nodes
+  const templates = Array.from(document.querySelectorAll('template[data-page-title]'));
+  const PAGES = templates.map((tpl, i) => ({
+    idx: i,
+    title: tpl.dataset.pageTitle,
+    part: tpl.dataset.part || '',
+    node: tpl.content.cloneNode(true)
+  }));
+
+  const host = document.getElementById('page-host');
+  PAGES.forEach((p) => {
+    const sec = document.createElement('section');
+    sec.className = 'page';
+    sec.dataset.page = String(p.idx);
+    sec.appendChild(p.node);
+    host.appendChild(sec);
+  });
+
+  // ---- TOC
+  const tocList = document.getElementById('toc-list');
+  let lastPart = null;
+  PAGES.forEach((p) => {
+    if (p.part !== lastPart) {
+      const h = document.createElement('div');
+      h.className = 'part';
+      h.textContent = p.part;
+      tocList.appendChild(h);
+      lastPart = p.part;
+    }
+    const a = document.createElement('a');
+    a.href = '#page-' + (p.idx + 1);
+    a.dataset.idx = String(p.idx);
+    a.innerHTML = '<span class="num">' + String(p.idx + 1).padStart(2, '0') + '</span><span>' + p.title + '</span>';
+    tocList.appendChild(a);
+  });
+
+  document.getElementById('tot-page').textContent = String(PAGES.length);
+
+  // ---- router
+  function currentIdx() {
+    const m = location.hash.match(/^#page-(\d+)$/);
+    if (!m) return 0;
+    return Math.max(0, Math.min(PAGES.length - 1, parseInt(m[1], 10) - 1));
+  }
+
+  function go(idx) {
+    idx = Math.max(0, Math.min(PAGES.length - 1, idx));
+    location.hash = '#page-' + (idx + 1);
+  }
+
+  function render() {
+    const idx = currentIdx();
+    document.querySelectorAll('section.page').forEach((s) => s.classList.remove('active'));
+    const active = document.querySelector('section.page[data-page="' + idx + '"]');
+    if (active) active.classList.add('active');
+
+    document.querySelectorAll('#toc-list a').forEach((a) =>
+      a.classList.toggle('active', Number(a.dataset.idx) === idx)
+    );
+
+    document.getElementById('cur-page').textContent = String(idx + 1);
+    document.getElementById('cur-title').textContent = PAGES[idx].title;
+    document.getElementById('prev-btn').disabled = idx === 0;
+    document.getElementById('next-btn').disabled = idx === PAGES.length - 1;
+
+    // Lazily hydrate code blocks on the active page.
+    hydrateCodeOnPage(active);
+
+    // Scroll the main column to top.
+    document.getElementById('content').scrollTop = 0;
+  }
+
+  document.getElementById('prev-btn').addEventListener('click', () => go(currentIdx() - 1));
+  document.getElementById('next-btn').addEventListener('click', () => go(currentIdx() + 1));
+
+  window.addEventListener('hashchange', render);
+  window.addEventListener('keydown', (e) => {
+    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft')  go(currentIdx() - 1);
+    if (e.key === 'ArrowRight') go(currentIdx() + 1);
+  });
+
+  // ---- Monaco bootstrap
+  let monacoReady = null;
+  function ensureMonaco() {
+    if (monacoReady) return monacoReady;
+    monacoReady = new Promise((resolve) => {
+      require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+      require(['vs/editor/editor.main'], () => {
+        monaco.editor.defineTheme('bisect-dark', {
+          base: 'vs-dark',
+          inherit: true,
+          rules: [],
+          colors: {
+            'editor.background': '#1e1e1e',
+            'editor.foreground': '#e6edf3',
+            'editor.lineHighlightBackground': '#252526',
+            'editorLineNumber.foreground': '#5a6171'
+          }
+        });
+        resolve();
+      });
+    });
+    return monacoReady;
+  }
+
+  function langFor(tag) {
+    const map = {
+      shell: 'shell', bash: 'shell', sh: 'shell', zsh: 'shell',
+      javascript: 'javascript', js: 'javascript', mjs: 'javascript',
+      typescript: 'typescript', ts: 'typescript',
+      yaml: 'yaml', yml: 'yaml',
+      json: 'json',
+      svelte: 'html', html: 'html',
+      markdown: 'markdown', md: 'markdown'
+    };
+    return map[(tag || '').toLowerCase()] || 'plaintext';
+  }
+
+  async function hydrateCodeOnPage(section) {
+    if (!section) return;
+    const blocks = section.querySelectorAll('pre.code:not([data-hydrated])');
+    if (!blocks.length) return;
+
+    await ensureMonaco();
+    blocks.forEach((pre) => {
+      pre.setAttribute('data-hydrated', '1');
+      const lang = langFor(pre.dataset.lang);
+      const title = pre.dataset.title || lang;
+      const code = pre.textContent.replace(/\s+$/, '');
+
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+
+      const header = document.createElement('div');
+      header.className = 'code-header';
+      header.innerHTML =
+        '<span><span class="lang-tag">' + lang + '</span> &nbsp;·&nbsp; ' + escapeHtml(title) + '</span>' +
+        '<button class="copy-btn" type="button">Copy</button>';
+      wrap.appendChild(header);
+
+      const editorHost = document.createElement('div');
+      editorHost.className = 'monaco-host';
+      const lines = code.split('\n').length;
+      editorHost.style.height = Math.min(560, Math.max(80, lines * 19 + 18)) + 'px';
+      wrap.appendChild(editorHost);
+
+      pre.replaceWith(wrap);
+
+      const editor = monaco.editor.create(editorHost, {
+        value: code,
+        language: lang,
+        theme: 'bisect-dark',
+        readOnly: true,
+        automaticLayout: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: 13,
+        fontFamily: '"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace',
+        renderLineHighlight: 'none',
+        wordWrap: 'off',
+        scrollbar: { vertical: 'auto', horizontal: 'auto', alwaysConsumeMouseWheel: false }
+      });
+
+      const copyBtn = header.querySelector('.copy-btn');
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(editor.getValue());
+          copyBtn.textContent = 'Copied!';
+          copyBtn.classList.add('copied');
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy';
+            copyBtn.classList.remove('copied');
+          }, 1400);
+        } catch (e) {
+          copyBtn.textContent = 'Copy failed';
+        }
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
+  }
+
+  // first render
+  render();
+})();
+</script>
+
+</body>
+</html>
