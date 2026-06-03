@@ -21,8 +21,26 @@
     --warn: #f0c674;
     --code-bg: #1e1e1e;
     --shadow: 0 8px 24px rgba(0,0,0,0.4);
+    --hl: rgba(126,231,255,0.25);
     --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
     --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body[data-theme="light"] {
+    --bg: #fbfbfd;
+    --bg-elev: #ffffff;
+    --bg-elev-2: #eef2f7;
+    --border: #d8dee6;
+    --fg: #1c2025;
+    --fg-dim: #5a6470;
+    --fg-faint: #8a93a0;
+    --accent: #0860c2;
+    --accent-2: #b25a00;
+    --good: #1a7f37;
+    --bad: #cf222e;
+    --warn: #9a6700;
+    --code-bg: #ffffff;
+    --shadow: 0 6px 18px rgba(20,30,50,0.08);
+    --hl: rgba(8,96,194,0.22);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
@@ -46,7 +64,49 @@
   aside#toc .subtitle {
     font-size: 11px;
     color: var(--fg-faint);
-    margin: 0 20px 18px;
+    margin: 0 20px 14px;
+  }
+  aside#toc .search-wrap {
+    margin: 0 16px 14px;
+    position: relative;
+  }
+  aside#toc input.search {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px 7px 28px;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    outline: none;
+  }
+  aside#toc input.search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--hl);
+  }
+  aside#toc .search-wrap::before {
+    content: "⌕";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--fg-faint);
+    font-size: 14px;
+    pointer-events: none;
+  }
+  aside#toc .search-empty {
+    font-size: 12px;
+    color: var(--fg-faint);
+    padding: 8px 20px;
+    font-style: italic;
+  }
+  aside#toc a.hidden, aside#toc .part.hidden { display: none; }
+  aside#toc a mark, section.page mark.search-hit {
+    background: var(--hl);
+    color: var(--fg);
+    border-radius: 2px;
+    padding: 0 2px;
   }
   aside#toc .part {
     font-size: 10px;
@@ -243,6 +303,19 @@
     font-variant-numeric: tabular-nums;
   }
   footer#nav .page-indicator strong { color: var(--accent); }
+  footer#nav .nav-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  footer#nav button.theme-toggle {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  footer#nav button.theme-toggle .icon {
+    font-size: 14px;
+    line-height: 1;
+  }
 
   /* TABLE */
   table.cmp {
@@ -272,6 +345,9 @@
 <aside id="toc">
   <h1>Bisection Debugging</h1>
   <p class="subtitle">A principal engineer's curriculum — simple → advanced</p>
+  <div class="search-wrap">
+    <input id="search" type="search" class="search" placeholder="Search pages…" autocomplete="off" spellcheck="false" />
+  </div>
   <nav id="toc-list"></nav>
 </aside>
 
@@ -284,7 +360,13 @@
 <footer id="nav">
   <button id="prev-btn" aria-label="Previous page">← Previous</button>
   <div class="page-indicator">Page <strong id="cur-page">1</strong> / <span id="tot-page">22</span> &nbsp;·&nbsp; <span id="cur-title"></span></div>
-  <button id="next-btn" aria-label="Next page">Next →</button>
+  <div class="nav-right">
+    <button id="theme-btn" class="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark theme">
+      <span class="icon" id="theme-icon">☾</span>
+      <span id="theme-label">Light</span>
+    </button>
+    <button id="next-btn" aria-label="Next page">Next →</button>
+  </div>
 </footer>
 
 <!-- ============================================================
@@ -348,12 +430,12 @@ predicate="$1"; shift
 files=("$@")
 
 lo=0; hi=$((${#files[@]} - 1))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   half=("${files[@]:lo:mid-lo+1}")
   echo "Testing files [$lo..$mid] (${#half[@]} files)"
   cmd="${predicate//\{\}/${half[*]}}"
-  if eval "$cmd" >/dev/null 2>&1; then
+  if eval "$cmd" &gt;/dev/null 2&gt;&amp;1; then
     lo=$((mid + 1))   # this half is good → bad must be in upper half
   else
     hi=$mid           # this half is bad → keep narrowing
@@ -393,16 +475,16 @@ THRESHOLD=4
 passes=0
 
 # Refuse to judge if the build is broken — that's a "skip", not a "bad".
-if ! pnpm install --frozen-lockfile >/dev/null 2>&1; then exit 125; fi
-if ! pnpm build >/dev/null 2>&1; then exit 125; fi
+if ! pnpm install --frozen-lockfile &gt;/dev/null 2&gt;&amp;1; then exit 125; fi
+if ! pnpm build &gt;/dev/null 2&gt;&amp;1; then exit 125; fi
 
 for i in $(seq 1 "$RUNS"); do
-  if pnpm test --run --bail 1 >/dev/null 2>&1; then
+  if pnpm test --run --bail 1 &gt;/dev/null 2&gt;&amp;1; then
     passes=$((passes + 1))
   fi
 done
 
-if (( passes >= THRESHOLD )); then exit 0; else exit 1; fi
+if (( passes &gt;= THRESHOLD )); then exit 0; else exit 1; fi
 </pre>
 
 <h4>2. Non-determinism — the environment drifts</h4>
@@ -424,14 +506,14 @@ export VITEST_SEED=42
 export VITEST_SEQUENCE_SHUFFLE=false
 
 # Honor .nvmrc only if it matches the pin; otherwise fail loudly.
-if command -v nvm >/dev/null 2>&1; then
-  nvm use "$NODE_VERSION" >/dev/null 2>&1 || { echo "Wrong Node"; exit 125; }
+if command -v nvm &gt;/dev/null 2&gt;&amp;1; then
+  nvm use "$NODE_VERSION" &gt;/dev/null 2&gt;&amp;1 || { echo "Wrong Node"; exit 125; }
 fi
 
 # Clean every byproduct cache — caches lie under bisection.
 rm -rf node_modules/.vite node_modules/.cache .svelte-kit dist
 
-pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
 pnpm test --run
 </pre>
 
@@ -516,19 +598,19 @@ restore() {
 trap restore EXIT INT TERM
 
 lo=0; hi=$(( ${#ALL[@]} - 1 ))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   echo
   echo "── Round: lo=$lo hi=$hi mid=$mid (testing lower half [lo..mid]) ──"
 
   # Stash the UPPER half so only [lo..mid] remain under test.
-  for (( i = mid + 1; i <= hi; i++ )); do
+  for (( i = mid + 1; i &lt;= hi; i++ )); do
     f="${ALL[$i]}"
     mkdir -p "$STASH/$(dirname "$f")"
     mv "$f" "$STASH/$f"
   done
 
-  if eval "$PREDICATE" >/dev/null 2>&1; then
+  if eval "$PREDICATE" &gt;/dev/null 2&gt;&amp;1; then
     echo "  → lower half GOOD; bad file is in upper half"
     # Restore upper, stash lower for next iteration.
     find "$STASH" -type f | while read -r f; do mv "$f" "${f#$STASH/}"; done
@@ -614,7 +696,7 @@ git bisect reset
 git bisect skip
 
 # Save the bisection log for later (e.g. resume after a crash, or for review).
-git bisect log > /tmp/bisect.log
+git bisect log &gt; /tmp/bisect.log
 git bisect reset                 # end session
 # Later:
 git bisect start
@@ -630,7 +712,7 @@ git bisect view --stat
 <p>The verbose form above is great for learning. In practice you'll use this one-liner:</p>
 <pre class="code" data-lang="shell" data-title="git-bisect-oneline.sh"># Start, bad, and good in a single command.
 git bisect start HEAD v2.3
-# (positional: <bad> <good...>; you can pass multiple goods)
+# (positional: &lt;bad&gt; &lt;good...&gt;; you can pass multiple goods)
 </pre>
 </template>
 
@@ -670,17 +752,17 @@ SUSPECT_TEST="pnpm vitest run tests/auth/login.test.ts"
 FLAKE_RETRIES=3            # run the suspect test N times before declaring bad
 
 # 1) Reset known-dirty caches that survive checkouts.
-rm -rf node_modules/.vite .svelte-kit .turbo dist 2>/dev/null || true
+rm -rf node_modules/.vite .svelte-kit .turbo dist 2&gt;/dev/null || true
 
 # 2) Hermetic install. If the lockfile or registry rejects this commit, SKIP.
-if ! $INSTALL_CMD >/tmp/bisect-install.log 2>&1; then
+if ! $INSTALL_CMD &gt;/tmp/bisect-install.log 2&gt;&amp;1; then
   echo "::skip:: install failed at $(git rev-parse --short HEAD)"
   exit 125
 fi
 
 # 3) Build. Broken build isn't necessarily the bug — but it might be.
 #    If the bug you're hunting is "the build broke", change exit 125 → exit 1 here.
-if ! $BUILD_CMD >/tmp/bisect-build.log 2>&1; then
+if ! $BUILD_CMD &gt;/tmp/bisect-build.log 2&gt;&amp;1; then
   echo "::skip:: build failed at $(git rev-parse --short HEAD)"
   exit 125
 fi
@@ -688,12 +770,12 @@ fi
 # 4) Run the suspect test multiple times, declare bad only on a clear majority.
 fails=0
 for i in $(seq 1 "$FLAKE_RETRIES"); do
-  if ! $SUSPECT_TEST >/tmp/bisect-test.$i.log 2>&1; then
+  if ! $SUSPECT_TEST &gt;/tmp/bisect-test.$i.log 2&gt;&amp;1; then
     fails=$((fails + 1))
   fi
 done
 
-if (( fails > FLAKE_RETRIES / 2 )); then
+if (( fails &gt; FLAKE_RETRIES / 2 )); then
   echo "::bad:: $(git rev-parse --short HEAD) failed $fails/$FLAKE_RETRIES"
   exit 1
 fi
@@ -708,7 +790,7 @@ exit 0
 set -euo pipefail
 
 BAD="${1:-HEAD}"
-GOOD="${2:?usage: drive-bisect.sh <bad-ref> <good-ref>}"
+GOOD="${2:?usage: drive-bisect.sh &lt;bad-ref&gt; &lt;good-ref&gt;}"
 PREDICATE="${3:-./bisect-predicate.sh}"
 
 chmod +x "$PREDICATE"
@@ -719,7 +801,7 @@ git bisect good "$GOOD"
 git bisect run "$PREDICATE" | tee /tmp/bisect-output.log
 
 # Whatever happened, leave the repo clean.
-git bisect log > /tmp/bisect-history.log
+git bisect log &gt; /tmp/bisect-history.log
 git bisect reset
 
 # Surface the verdict.
@@ -778,7 +860,7 @@ git bisect run ./bisect-predicate.sh
 <p>What if you discover a flake only halfway through? Don't restart — you can edit the verdict:</p>
 
 <pre class="code" data-lang="shell" data-title="bisect-fix-mistake.sh"># I told git this commit was good; now I think it was bad. Fix the log.
-git bisect log > /tmp/bisect-log
+git bisect log &gt; /tmp/bisect-log
 
 # Edit /tmp/bisect-log in your editor. Change `good abc123` to `bad abc123`,
 # or delete the line entirely if you can't tell.
@@ -804,7 +886,7 @@ Bisecting: ...
 <p>Long bisections (hundreds of slow commits) sometimes outlive your laptop session. Save the log and resume anywhere:</p>
 
 <pre class="code" data-lang="shell" data-title="bisect-portable.sh"># Save current state.
-git bisect log > bisect-state.log
+git bisect log &gt; bisect-state.log
 git bisect reset
 
 # On another machine (after cloning the same repo):
@@ -844,11 +926,11 @@ Author: dev@example.com
 # bisect-squashed-pr.sh — bisect inside a squashed PR by replaying its branch.
 set -euo pipefail
 
-PR_NUMBER="${1:?usage: bisect-squashed-pr.sh <pr-number>}"
-SQUASH_COMMIT="${2:?<squash-commit-sha>}"
+PR_NUMBER="${1:?usage: bisect-squashed-pr.sh &lt;pr-number&gt;}"
+SQUASH_COMMIT="${2:?&lt;squash-commit-sha&gt;}"
 
 # 1) Most providers (GitHub, GitLab) keep the original PR branch reachable via
-#    a special ref. For GitHub:  refs/pull/<n>/head
+#    a special ref. For GitHub:  refs/pull/&lt;n&gt;/head
 git fetch origin "refs/pull/$PR_NUMBER/head:bisect-pr-$PR_NUMBER"
 
 PR_TIP="bisect-pr-$PR_NUMBER"
@@ -944,16 +1026,16 @@ git update-ref refs/recovered/possibly-bad HEAD
 set -euo pipefail
 shopt -s globstar nullglob
 
-CHECK_CMD="${1:?usage: $0 \"<check-cmd>\" \"<glob>\"}"
+CHECK_CMD="${1:?usage: $0 \"&lt;check-cmd&gt;\" \"&lt;glob&gt;\"}"
 GLOB="${2:?missing glob}"
 
 # Expand glob → array. Sorted for deterministic, resumable runs.
-mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+mapfile -t FILES &lt; &lt;(printf '%s\n' $GLOB | sort)
 N="${#FILES[@]}"
 echo "Bisecting $N files with: $CHECK_CMD"
 
 # Sanity check: the FULL set must actually fail. Otherwise nothing to find.
-if $CHECK_CMD "${FILES[@]}" >/dev/null 2>&1; then
+if $CHECK_CMD "${FILES[@]}" &gt;/dev/null 2&gt;&amp;1; then
   echo "Predicate passes on full set — nothing to bisect."
   exit 0
 fi
@@ -962,7 +1044,7 @@ lo=0
 hi=$((N - 1))
 round=0
 
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   round=$((round + 1))
   mid=$(( (lo + hi) / 2 ))
   lower=("${FILES[@]:lo:mid-lo+1}")
@@ -970,7 +1052,7 @@ while (( lo < hi )); do
   printf "round %2d: testing %d files (indices %d..%d)\n" \
     "$round" "${#lower[@]}" "$lo" "$mid"
 
-  if $CHECK_CMD "${lower[@]}" >/dev/null 2>&1; then
+  if $CHECK_CMD "${lower[@]}" &gt;/dev/null 2&gt;&amp;1; then
     # Lower half is clean → culprit is in upper half.
     lo=$((mid + 1))
   else
@@ -1001,16 +1083,16 @@ $CHECK_CMD "${FILES[$lo]}" || true
 set -euo pipefail
 shopt -s globstar nullglob
 
-PREDICATE="${1:?usage: $0 <predicate-cmd> <glob>}"
+PREDICATE="${1:?usage: $0 &lt;predicate-cmd&gt; &lt;glob&gt;}"
 GLOB="${2:?missing glob}"
 STASH="$(mktemp -d -p . .bisect-stash-XXXXXX)"
 
-mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+mapfile -t FILES &lt; &lt;(printf '%s\n' $GLOB | sort)
 
 cleanup() {
   echo "Restoring stash…"
   if [ -d "$STASH" ]; then
-    (cd "$STASH" && find . -type f -print) | while read -r rel; do
+    (cd "$STASH" &amp;&amp; find . -type f -print) | while read -r rel; do
       mkdir -p "$(dirname "${rel#./}")"
       mv "$STASH/${rel#./}" "${rel#./}"
     done
@@ -1031,18 +1113,18 @@ unstash() {
 }
 
 lo=0; hi=$(( ${#FILES[@]} - 1 ))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   # Stash UPPER half; predicate runs against [lo..mid].
-  for (( i = mid + 1; i <= hi; i++ )); do stash "${FILES[$i]}"; done
+  for (( i = mid + 1; i &lt;= hi; i++ )); do stash "${FILES[$i]}"; done
 
-  if $PREDICATE >/dev/null 2>&1; then
+  if $PREDICATE &gt;/dev/null 2&gt;&amp;1; then
     # Lower half is clean → culprit is in upper half.
-    for (( i = mid + 1; i <= hi; i++ )); do unstash "${FILES[$i]}"; done
+    for (( i = mid + 1; i &lt;= hi; i++ )); do unstash "${FILES[$i]}"; done
     lo=$((mid + 1))
   else
     # Restore upper, then stash lower-upper for next round.
-    for (( i = mid + 1; i <= hi; i++ )); do unstash "${FILES[$i]}"; done
+    for (( i = mid + 1; i &lt;= hi; i++ )); do unstash "${FILES[$i]}"; done
     hi=$mid
   fi
 done
@@ -1062,9 +1144,9 @@ predicate_memo() {
   if [ -f "$cache" ]; then
     return "$(cat "$cache")"
   fi
-  pnpm exec svelte-check --filter "$@" >/dev/null 2>&1
+  pnpm exec svelte-check --filter "$@" &gt;/dev/null 2&gt;&amp;1
   local rc=$?
-  echo "$rc" > "$cache"
+  echo "$rc" &gt; "$cache"
   return "$rc"
 }
 </pre>
@@ -1100,18 +1182,18 @@ predicate_memo() {
 //
 // HARNESS REQUIREMENT (drop into your SvelteKit dev server):
 //   src/routes/__leak-harness/+page.svelte:
-//   <script>
+//   &lt;script&gt;
 //     import { mount, unmount } from 'svelte';
 //     const components = import.meta.glob('/src/lib/components/**/*.svelte', { eager: true });
 //     let current = null;
-//     window.__mount = async (name) => {
-//       const mod = Object.entries(components).find(([k]) => k.endsWith('/' + name + '.svelte'))?.[1];
+//     window.__mount = async (name) =&gt; {
+//       const mod = Object.entries(components).find(([k]) =&gt; k.endsWith('/' + name + '.svelte'))?.[1];
 //       if (!mod) throw new Error('Unknown component: ' + name);
 //       current = mount(mod.default, { target: document.getElementById('host') });
 //     };
-//     window.__unmount = async () => { if (current) { await unmount(current); current = null; } };
-//   </script>
-//   <div id="host"></div>
+//     window.__unmount = async () =&gt; { if (current) { await unmount(current); current = null; } };
+//   &lt;/script&gt;
+//   &lt;div id="host"&gt;&lt;/div&gt;
 
 import { chromium } from 'playwright';
 
@@ -1120,7 +1202,7 @@ const SUSPECTS   = (process.argv[3] || '').split(',').filter(Boolean);
 const LEAK_BYTES = Number(process.env.LEAK_BYTES_THRESHOLD || 512 * 1024); // 512 KB
 
 if (!HARNESS_URL || !SUSPECTS.length) {
-  console.error('usage: mem-leak-bisect.mjs <harness-url> <comp1,comp2,...>');
+  console.error('usage: mem-leak-bisect.mjs &lt;harness-url&gt; &lt;comp1,comp2,...&gt;');
   process.exit(2);
 }
 
@@ -1134,7 +1216,7 @@ await cdp.send('HeapProfiler.enable');
 
 async function forceGC() {
   await cdp.send('HeapProfiler.collectGarbage');
-  await page.evaluate(() => new Promise(r => setTimeout(r, 100)));
+  await page.evaluate(() =&gt; new Promise(r =&gt; setTimeout(r, 100)));
   await cdp.send('HeapProfiler.collectGarbage');
 }
 
@@ -1146,9 +1228,9 @@ async function retainedHeap() {
 
 async function mountCycle(names) {
   for (const name of names) {
-    await page.evaluate((n) => window.__mount(n), name);
-    await page.evaluate(() => new Promise(r => setTimeout(r, 50)));
-    await page.evaluate(() => window.__unmount());
+    await page.evaluate((n) =&gt; window.__mount(n), name);
+    await page.evaluate(() =&gt; new Promise(r =&gt; setTimeout(r, 50)));
+    await page.evaluate(() =&gt; window.__unmount());
   }
 }
 
@@ -1167,15 +1249,15 @@ await forceGC();
 console.log(`Bisecting ${SUSPECTS.length} components, leak threshold = ${LEAK_BYTES} bytes`);
 
 let lo = 0, hi = SUSPECTS.length - 1, round = 0;
-while (lo < hi) {
+while (lo &lt; hi) {
   round++;
-  const mid = (lo + hi) >> 1;
+  const mid = (lo + hi) &gt;&gt; 1;
   const subset = SUSPECTS.slice(lo, mid + 1);
   const leaked = await leakSize(subset);
-  const verdict = leaked > LEAK_BYTES ? 'LEAK' : 'clean';
+  const verdict = leaked &gt; LEAK_BYTES ? 'LEAK' : 'clean';
   console.log(`round ${round}: subset [${lo}..${mid}] (${subset.length} comps) → ${leaked} bytes ${verdict}`);
 
-  if (leaked > LEAK_BYTES) {
+  if (leaked &gt; LEAK_BYTES) {
     hi = mid;
   } else {
     lo = mid + 1;
@@ -1206,11 +1288,11 @@ await browser.close();
 
 <pre class="code" data-lang="javascript" data-title="snapshot-diff.mjs">async function takeSnapshot(label) {
   let chunks = '';
-  const handler = ({ chunk }) => { chunks += chunk; };
+  const handler = ({ chunk }) =&gt; { chunks += chunk; };
   cdp.on('HeapProfiler.addHeapSnapshotChunk', handler);
   await cdp.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });
   cdp.off('HeapProfiler.addHeapSnapshotChunk', handler);
-  await import('fs').then(fs => fs.writeFileSync(`heap-${label}.heapsnapshot`, chunks));
+  await import('fs').then(fs =&gt; fs.writeFileSync(`heap-${label}.heapsnapshot`, chunks));
   return chunks.length; // returned size is a quick monotonic proxy
 }
 // Open both .heapsnapshot files in Chrome DevTools → Memory → "Comparison" view.
@@ -1261,7 +1343,7 @@ const changed = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { thres
 
 fs.writeFileSync('diff.png', PNG.sync.write(diff));
 console.log(`changed pixels: ${changed} (tolerance: ${TOL_PIXELS})`);
-process.exit(changed > TOL_PIXELS ? 1 : 0);
+process.exit(changed &gt; TOL_PIXELS ? 1 : 0);
 </pre>
 
 <h3>Bisecting Tailwind utility classes</h3>
@@ -1286,15 +1368,15 @@ const orig = fs.readFileSync(file, 'utf8');
 const re = /class="([^"]+)"/g;
 const matches = [...orig.matchAll(re)];
 if (!matches.length) { console.error('No class attributes found.'); process.exit(2); }
-matches.forEach((m, i) => console.log(`[${i}] ${m[1].slice(0, 80)}${m[1].length > 80 ? '…' : ''}`));
+matches.forEach((m, i) =&gt; console.log(`[${i}] ${m[1].slice(0, 80)}${m[1].length &gt; 80 ? '…' : ''}`));
 
 const which = Number(process.argv[3] || 0);
 const target = matches[which];
 const classes = target[1].split(/\s+/).filter(Boolean);
 console.log(`Bisecting ${classes.length} classes in attribute #${which}`);
 
-process.on('exit', () => fs.writeFileSync(file, orig));
-process.on('SIGINT', () => process.exit(130));
+process.on('exit', () =&gt; fs.writeFileSync(file, orig));
+process.on('SIGINT', () =&gt; process.exit(130));
 
 function applyKeep(keep) {
   const patched = orig.replace(target[0], `class="${keep.join(' ')}"`);
@@ -1307,8 +1389,8 @@ function predicateFails() {
 }
 
 let lo = 0, hi = classes.length - 1;
-while (lo < hi) {
-  const mid = (lo + hi) >> 1;
+while (lo &lt; hi) {
+  const mid = (lo + hi) &gt;&gt; 1;
   const keepLower = classes.slice(0, mid + 1);
   applyKeep(keepLower);
   console.log(`testing classes [0..${mid}]`);
@@ -1342,10 +1424,10 @@ console.log(`\nCulprit class: "${classes[lo]}"`);
 //   • A list of (name, oldVersion, newVersion) tuples. Build it from a diff
 //     of `pnpm.lock` between the last green commit and HEAD, or pipe in
 //     `pnpm outdated --json` from before the update.
-//   • A predicate command (default: `pnpm build && pnpm test --run`).
+//   • A predicate command (default: `pnpm build &amp;&amp; pnpm test --run`).
 //
 // USAGE:
-//   node dep-bisect.mjs bumps.json "pnpm build && pnpm test --run"
+//   node dep-bisect.mjs bumps.json "pnpm build &amp;&amp; pnpm test --run"
 //
 // bumps.json:
 //   [
@@ -1362,7 +1444,7 @@ const PREDICATE = process.argv[3] || 'pnpm build';
 const PKG = './package.json';
 
 const originalPkg = fs.readFileSync(PKG, 'utf8');
-process.on('exit', () => {
+process.on('exit', () =&gt; {
   fs.writeFileSync(PKG, originalPkg);
   spawnSync('pnpm', ['install', '--silent'], { stdio: 'inherit' });
 });
@@ -1371,7 +1453,7 @@ function withOverrides(pinNames) {
   const pkg = JSON.parse(originalPkg);
   pkg.pnpm = pkg.pnpm || {};
   pkg.pnpm.overrides = Object.fromEntries(
-    BUMPS.filter(b => pinNames.has(b.name)).map(b => [b.name, b.old])
+    BUMPS.filter(b =&gt; pinNames.has(b.name)).map(b =&gt; [b.name, b.old])
   );
   fs.writeFileSync(PKG, JSON.stringify(pkg, null, 2));
   const r = spawnSync('pnpm', ['install', '--no-frozen-lockfile', '--silent'], { stdio: 'inherit' });
@@ -1395,10 +1477,10 @@ console.log(`Bisecting ${BUMPS.length} dependency bumps`);
 // the upper half (and we'd need to also pin one of those).
 
 let lo = 0, hi = BUMPS.length - 1, round = 0;
-while (lo < hi) {
+while (lo &lt; hi) {
   round++;
-  const mid = (lo + hi) >> 1;
-  const pinNames = new Set(BUMPS.slice(lo, mid + 1).map(b => b.name));
+  const mid = (lo + hi) &gt;&gt; 1;
+  const pinNames = new Set(BUMPS.slice(lo, mid + 1).map(b =&gt; b.name));
   console.log(`\nround ${round}: pinning [${lo}..${mid}] (${pinNames.size} pkgs)`);
   withOverrides(pinNames);
   if (runPredicate()) {
@@ -1423,7 +1505,7 @@ node -e '
   const pkg = require("./package.json");
   const all = {...pkg.dependencies, ...pkg.devDependencies};
   process.stdout.write(JSON.stringify(all, null, 2));
-' > /tmp/versions-before.json
+' &gt; /tmp/versions-before.json
 
 # 2) Update.
 pnpm update --latest
@@ -1434,10 +1516,10 @@ node -e '
   const pkg = require("./package.json");
   const after = {...pkg.dependencies, ...pkg.devDependencies};
   const bumps = Object.keys(after)
-    .filter(n => before[n] && before[n] !== after[n])
-    .map(n => ({ name: n, old: before[n].replace(/^[~^]/, ""), new: after[n].replace(/^[~^]/, "") }));
+    .filter(n =&gt; before[n] &amp;&amp; before[n] !== after[n])
+    .map(n =&gt; ({ name: n, old: before[n].replace(/^[~^]/, ""), new: after[n].replace(/^[~^]/, "") }));
   process.stdout.write(JSON.stringify(bumps, null, 2));
-' > bumps.json
+' &gt; bumps.json
 
 echo "Wrote bumps.json with $(jq length bumps.json) entries"
 </pre>
@@ -1446,8 +1528,8 @@ echo "Wrote bumps.json with $(jq length bumps.json) entries"
 <p>Sometimes the broken package is a <em>transitive</em> dep: your direct deps are fine, but one of them now pulls in a broken sub-dep. Detect this by also bisecting <code>pnpm-lock.yaml</code> directly — check out the lockfile from the last green commit, install, and confirm the bug disappears. If it does, the culprit is a transitive bump; widen <code>bumps.json</code> to include every changed entry in <code>pnpm-lock.yaml</code>, not just direct deps.</p>
 
 <pre class="code" data-lang="shell" data-title="dep-bisect-transitive.sh"># Extract every package whose version differs between two lockfile commits.
-git show HEAD~1:pnpm-lock.yaml > /tmp/lock.old
-git show HEAD:pnpm-lock.yaml   > /tmp/lock.new
+git show HEAD~1:pnpm-lock.yaml &gt; /tmp/lock.old
+git show HEAD:pnpm-lock.yaml   &gt; /tmp/lock.new
 
 node -e '
   const yaml = require("yaml");
@@ -1461,13 +1543,13 @@ node -e '
     const m = k.match(/^\/(.+)@([^\/]+)/);
     if (!m) continue;
     const [, name, version] = m;
-    const oldKey = Object.keys(old).find(o => o.startsWith("/" + name + "@"));
+    const oldKey = Object.keys(old).find(o =&gt; o.startsWith("/" + name + "@"));
     if (!oldKey) continue;
     const oldV = oldKey.match(/@([^\/]+)$/)[1];
     if (oldV !== version) bumps.push({ name, old: oldV, new: version });
   }
   process.stdout.write(JSON.stringify(bumps, null, 2));
-' > bumps-transitive.json
+' &gt; bumps-transitive.json
 </pre>
 </template>
 
@@ -1506,7 +1588,7 @@ const OPTIONS = JSON.parse(process.argv[2]);
 const CFG = './tsconfig.json';
 
 const original = fs.readFileSync(CFG, 'utf8');
-process.on('exit', () => fs.writeFileSync(CFG, original));
+process.on('exit', () =&gt; fs.writeFileSync(CFG, original));
 
 function apply(enabled) {
   const cfg = JSON.parse(original);
@@ -1533,8 +1615,8 @@ apply([]);
 if (buildFails())  { console.log('No options on → still fails. The bug is elsewhere.'); process.exit(0); }
 
 let lo = 0, hi = OPTIONS.length - 1;
-while (lo < hi) {
-  const mid = (lo + hi) >> 1;
+while (lo &lt; hi) {
+  const mid = (lo + hi) &gt;&gt; 1;
   apply(OPTIONS.slice(lo, mid + 1));
   console.log(`testing [${OPTIONS.slice(lo, mid + 1).join(', ')}]`);
   if (buildFails()) hi = mid; else lo = mid + 1;
@@ -1557,11 +1639,11 @@ FLAGS=(--experimental-vm-modules --enable-source-maps --no-warnings \
 PREDICATE="pnpm test --run"
 
 lo=0; hi=$(( ${#FLAGS[@]} - 1 ))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   subset=("${FLAGS[@]:lo:mid-lo+1}")
-  NODE_OPTIONS="${subset[*]}" $PREDICATE >/dev/null 2>&1 \
-    && lo=$((mid + 1)) || hi=$mid
+  NODE_OPTIONS="${subset[*]}" $PREDICATE &gt;/dev/null 2&gt;&amp;1 \
+    &amp;&amp; lo=$((mid + 1)) || hi=$mid
   echo "narrowed to [$lo..$hi]"
 done
 echo "Culprit flag: ${FLAGS[$lo]}"
@@ -1594,7 +1676,7 @@ import { spawnSync } from 'child_process';
 
 const FILE = 'vite.config.js';
 const original = fs.readFileSync(FILE, 'utf8');
-process.on('exit', () => fs.writeFileSync(FILE, original));
+process.on('exit', () =&gt; fs.writeFileSync(FILE, original));
 
 const begin = original.indexOf('/* @bisect:begin */');
 const end   = original.indexOf('/* @bisect:end */');
@@ -1613,7 +1695,7 @@ let depth = 0, current = '';
 for (const ch of middle) {
   if (ch === '(' || ch === '[' || ch === '{') depth++;
   if (ch === ')' || ch === ']' || ch === '}') depth--;
-  if (ch === ',' && depth === 0) {
+  if (ch === ',' &amp;&amp; depth === 0) {
     if (current.trim()) plugins.push(current.trim());
     current = '';
   } else current += ch;
@@ -1631,8 +1713,8 @@ function buildOk() {
 }
 
 let lo = 0, hi = plugins.length - 1;
-while (lo < hi) {
-  const mid = (lo + hi) >> 1;
+while (lo &lt; hi) {
+  const mid = (lo + hi) &gt;&gt; 1;
   withPlugins(plugins.slice(lo, mid + 1));
   console.log(`testing plugins [${lo}..${mid}]`);
   if (buildOk()) lo = mid + 1; else hi = mid;
@@ -1676,11 +1758,11 @@ console.log(`\nCulprit plugin: ${plugins[lo]}`);
 #
 set -euo pipefail
 
-SUSPECT="${1:?usage: $0 <suspect-test-file>}"
+SUSPECT="${1:?usage: $0 &lt;suspect-test-file&gt;}"
 
 # Get the canonical order vitest uses, excluding the suspect.
-mapfile -t SUITE < <(
-  pnpm exec vitest list --reporter=json 2>/dev/null \
+mapfile -t SUITE &lt; &lt;(
+  pnpm exec vitest list --reporter=json 2&gt;/dev/null \
     | jq -r '.testModules[].moduleId' \
     | grep -v -F "$SUSPECT"
 )
@@ -1688,23 +1770,23 @@ N="${#SUITE[@]}"
 echo "Suite has $N tests before $SUSPECT"
 
 # Confirm: running suspect ALONE passes.
-if ! pnpm exec vitest run "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+if ! pnpm exec vitest run "$SUSPECT" --reporter=dot &gt;/dev/null 2&gt;&amp;1; then
   echo "Suspect fails in isolation — not a pollution flake. Stopping."
   exit 1
 fi
 # Confirm: running suite + suspect together FAILS.
-if pnpm exec vitest run "${SUITE[@]}" "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+if pnpm exec vitest run "${SUITE[@]}" "$SUSPECT" --reporter=dot &gt;/dev/null 2&gt;&amp;1; then
   echo "Suite + suspect passes — not reproducible. Stopping."
   exit 0
 fi
 
 lo=0; hi=$((N - 1)); round=0
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   round=$((round + 1))
   mid=$(( (lo + hi) / 2 ))
   before=("${SUITE[@]:lo:mid-lo+1}")
   echo "round $round: running ${#before[@]} tests before suspect (indices $lo..$mid)"
-  if pnpm exec vitest run "${before[@]}" "$SUSPECT" --reporter=dot >/dev/null 2>&1; then
+  if pnpm exec vitest run "${before[@]}" "$SUSPECT" --reporter=dot &gt;/dev/null 2&gt;&amp;1; then
     # Lower half didn't reproduce → polluter is in upper half.
     lo=$((mid + 1))
   else
@@ -1730,15 +1812,15 @@ echo "Polluter: ${SUITE[$lo]}"
 
 <pre class="code" data-lang="shell" data-title="bisect-within-file.sh"># Bisect across test names inside one polluter file.
 POLLUTER="$1"; SUSPECT="$2"
-mapfile -t NAMES < <(
+mapfile -t NAMES &lt; &lt;(
   pnpm exec vitest list --reporter=json "$POLLUTER" \
     | jq -r '.testModules[0].tasks[].name'
 )
 lo=0; hi=$((${#NAMES[@]} - 1))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   pattern=$(IFS='|'; echo "${NAMES[*]:lo:mid-lo+1}")
-  if pnpm exec vitest run "$POLLUTER" -t "$pattern" "$SUSPECT" >/dev/null 2>&1; then
+  if pnpm exec vitest run "$POLLUTER" -t "$pattern" "$SUSPECT" &gt;/dev/null 2&gt;&amp;1; then
     lo=$((mid + 1))
   else
     hi=$mid
@@ -1769,11 +1851,11 @@ WARMUPS=3
 RUNS=5
 
 # Skip if install/build can't even start.
-pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
 
 # Run the benchmark; emit JSON for jq.
 if ! hyperfine --warmup "$WARMUPS" --runs "$RUNS" --export-json /tmp/bench.json \
-     "$COMMAND" >/tmp/bench.log 2>&1; then
+     "$COMMAND" &gt;/tmp/bench.log 2&gt;&amp;1; then
   exit 125
 fi
 
@@ -1781,7 +1863,7 @@ fi
 P50_MS=$(jq '.results[0].median * 1000 | round' /tmp/bench.json)
 echo "median: ${P50_MS} ms (budget ${BUDGET_MS} ms)"
 
-if (( P50_MS > BUDGET_MS )); then exit 1; else exit 0; fi
+if (( P50_MS &gt; BUDGET_MS )); then exit 1; else exit 0; fi
 </pre>
 
 <h3>Driving the bisection</h3>
@@ -1790,7 +1872,7 @@ if (( P50_MS > BUDGET_MS )); then exit 1; else exit 0; fi
 set -euo pipefail
 
 BAD="${1:-HEAD}"
-GOOD="${2:?usage: $0 <bad> <good> [budget-ms] [command]}"
+GOOD="${2:?usage: $0 &lt;bad&gt; &lt;good&gt; [budget-ms] [command]}"
 BUDGET_MS="${3:-10000}"
 COMMAND="${4:-pnpm build}"
 
@@ -1815,18 +1897,18 @@ git bisect reset
 set -uo pipefail
 
 # Start the server.
-pnpm start &>/tmp/server.log &
+pnpm start &amp;&gt;/tmp/server.log &amp;
 PID=$!
-trap 'kill $PID 2>/dev/null || true' EXIT
+trap 'kill $PID 2&gt;/dev/null || true' EXIT
 
 # Wait for readiness (10s timeout).
 for i in {1..20}; do
-  curl -sf http://localhost:3000/health >/dev/null && break
+  curl -sf http://localhost:3000/health &gt;/dev/null &amp;&amp; break
   sleep 0.5
 done
 
 # Run a 20-second k6 test.
-k6 run --quiet --duration 20s --vus 50 --summary-export=/tmp/k6.json - <<'JS'
+k6 run --quiet --duration 20s --vus 50 --summary-export=/tmp/k6.json - &lt;&lt;'JS'
 import http from 'k6/http';
 import { sleep } from 'k6';
 export default function () {
@@ -1839,7 +1921,7 @@ P95_MS=$(jq '.metrics.http_req_duration["p(95)"] | round' /tmp/k6.json)
 BUDGET_MS="${API_BUDGET_MS:-200}"
 echo "p95 ${P95_MS}ms (budget ${BUDGET_MS}ms)"
 
-(( P95_MS > BUDGET_MS )) && exit 1 || exit 0
+(( P95_MS &gt; BUDGET_MS )) &amp;&amp; exit 1 || exit 0
 </pre>
 </template>
 
@@ -1867,15 +1949,15 @@ import { allRoutes } from './app.js';
 
 const SUBSET = (process.env.ROUTES || '').split(',').filter(Boolean);
 const routes = SUBSET.length
-  ? allRoutes.filter(r => SUBSET.includes(r.path))
+  ? allRoutes.filter(r =&gt; SUBSET.includes(r.path))
   : allRoutes;
 
 const app = express();
 for (const { path, handler } of routes) app.use(path, handler);
-app.get('/__health', (_req, res) => res.json({ ok: true, routes: routes.map(r => r.path) }));
+app.get('/__health', (_req, res) =&gt; res.json({ ok: true, routes: routes.map(r =&gt; r.path) }));
 
-createServer(app).listen(3000, () => {
-  console.log(`Listening with ${routes.length} routes: ${routes.map(r=>r.path).join(',')}`);
+createServer(app).listen(3000, () =&gt; {
+  console.log(`Listening with ${routes.length} routes: ${routes.map(r=&gt;r.path).join(',')}`);
 });
 </pre>
 
@@ -1895,24 +1977,24 @@ const ROUTES = process.argv[2].split(',').filter(Boolean);
 const LEAK_MB_PER_MIN = Number(process.env.LEAK_MB_PER_MIN || 25);
 
 async function runOne(subset) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) =&gt; {
     const env = { ...process.env, ROUTES: subset.join(',') };
     const server = spawn('node', ['server-with-route-subset.mjs'], { env, stdio: 'pipe' });
-    server.stderr.on('data', d => process.stderr.write(d));
+    server.stderr.on('data', d =&gt; process.stderr.write(d));
 
     let samples = [];
     let load = null;
 
-    (async () => {
+    (async () =&gt; {
       await sleep(1000); // let server boot
       load = spawn('autocannon', ['-c', '50', '-d', '60', '-R', '500', 'http://localhost:3000'],
                    { stdio: 'ignore' });
 
       // Sample heap every 5s for 60s via /__health-extended? Simpler: poll RSS via /proc.
-      for (let t = 0; t < 60; t += 5) {
+      for (let t = 0; t &lt; 60; t += 5) {
         await sleep(5000);
         try {
-          const status = await import('fs').then(fs => fs.promises.readFile(`/proc/${server.pid}/status`, 'utf8'));
+          const status = await import('fs').then(fs =&gt; fs.promises.readFile(`/proc/${server.pid}/status`, 'utf8'));
           const m = status.match(/VmRSS:\s+(\d+)/);
           if (m) samples.push(Number(m[1]) / 1024); // MB
         } catch {}
@@ -1921,7 +2003,7 @@ async function runOne(subset) {
       try { load.kill('SIGTERM'); } catch {}
       try { server.kill('SIGTERM'); } catch {}
 
-      if (samples.length < 6) return reject(new Error('Not enough samples'));
+      if (samples.length &lt; 6) return reject(new Error('Not enough samples'));
       const slope = (samples.at(-1) - samples[0]) / (samples.length * 5 / 60); // MB / min
       resolve(slope);
     })().catch(reject);
@@ -1931,13 +2013,13 @@ async function runOne(subset) {
 console.log(`Bisecting ${ROUTES.length} routes; leak threshold ${LEAK_MB_PER_MIN} MB/min`);
 
 let lo = 0, hi = ROUTES.length - 1;
-while (lo < hi) {
-  const mid = (lo + hi) >> 1;
+while (lo &lt; hi) {
+  const mid = (lo + hi) &gt;&gt; 1;
   const subset = ROUTES.slice(lo, mid + 1);
   console.log(`subset [${lo}..${mid}]: ${subset.join(',')}`);
   const slope = await runOne(subset);
   console.log(`  slope: ${slope.toFixed(1)} MB/min`);
-  if (slope > LEAK_MB_PER_MIN) hi = mid; else lo = mid + 1;
+  if (slope &gt; LEAK_MB_PER_MIN) hi = mid; else lo = mid + 1;
 }
 console.log(`\nLeaking route: ${ROUTES[lo]}`);
 </pre>
@@ -1946,14 +2028,14 @@ console.log(`\nLeaking route: ${ROUTES[lo]}`);
 <p>Now <code>clinic heapprofiler</code> on the isolated route narrows further:</p>
 
 <pre class="code" data-lang="shell" data-title="clinic-heap.sh"># Profile only the suspect route.
-ROUTES="/api/orders" pnpm exec clinic heapprofiler -- node server-with-route-subset.mjs &
+ROUTES="/api/orders" pnpm exec clinic heapprofiler -- node server-with-route-subset.mjs &amp;
 sleep 2
 
 # Drive the route for 90 seconds.
 autocannon -c 30 -d 90 -R 200 http://localhost:3000/api/orders
 
 # Stop the server; clinic opens the heap profile in a browser.
-kill %1 2>/dev/null
+kill %1 2&gt;/dev/null
 wait
 </pre>
 
@@ -1975,18 +2057,18 @@ wait
 set -euo pipefail
 shopt -s globstar nullglob
 
-PRED="${1:?usage: $0 <predicate> <glob>}"
+PRED="${1:?usage: $0 &lt;predicate&gt; &lt;glob&gt;}"
 GLOB="${2:?missing glob}"
 
 # Bash's `**/` requires globstar; word-split on whitespace into an array.
-mapfile -t FILES < <(printf '%s\n' $GLOB | sort)
+mapfile -t FILES &lt; &lt;(printf '%s\n' $GLOB | sort)
 echo "candidates: ${#FILES[@]}"
 
 lo=0; hi=$(( ${#FILES[@]} - 1 ))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   half=("${FILES[@]:lo:mid-lo+1}")
-  if $PRED "${half[@]}" >/dev/null 2>&1; then
+  if $PRED "${half[@]}" &gt;/dev/null 2&gt;&amp;1; then
     lo=$((mid + 1))
   else
     hi=$mid
@@ -2005,25 +2087,25 @@ echo "culprit: ${FILES[$lo]}"
 #   ./bash-l2-mapfile.sh "git ls-files '*.svelte'" "pnpm exec svelte-check"
 set -euo pipefail
 
-LIST_CMD="${1:?usage: $0 <list-cmd> <predicate>}"
+LIST_CMD="${1:?usage: $0 &lt;list-cmd&gt; &lt;predicate&gt;}"
 PRED="${2:?missing predicate}"
 
-mapfile -t FILES < <(eval "$LIST_CMD" | sort -u)
+mapfile -t FILES &lt; &lt;(eval "$LIST_CMD" | sort -u)
 N="${#FILES[@]}"
 echo "Candidates: $N"
 
-# Process substitution `< <(…)` keeps the variables in the parent shell — a
+# Process substitution `&lt; &lt;(…)` keeps the variables in the parent shell — a
 # pipeline `cmd | while read` would not, because the loop runs in a subshell
 # and its variable assignments would be lost. This is the most-asked Bash
-# bisection bug. Use < <(…), not | while.
+# bisection bug. Use &lt; &lt;(…), not | while.
 
 lo=0; hi=$((N - 1)); round=0
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   round=$((round + 1))
   mid=$(( (lo + hi) / 2 ))
   half=("${FILES[@]:lo:mid-lo+1}")
   printf 'round %2d  [%4d..%4d]  %d files  ' "$round" "$lo" "$mid" "${#half[@]}"
-  if $PRED "${half[@]}" >/dev/null 2>&1; then
+  if $PRED "${half[@]}" &gt;/dev/null 2&gt;&amp;1; then
     echo "good"
     lo=$((mid + 1))
   else
@@ -2031,7 +2113,7 @@ while (( lo < hi )); do
     hi=$mid
   fi
 done
-echo "==> culprit: ${FILES[$lo]}"
+echo "==&gt; culprit: ${FILES[$lo]}"
 </pre>
 
 <h3>Level 3: command substitution patterns you'll use a lot</h3>
@@ -2040,11 +2122,11 @@ echo "==> culprit: ${FILES[$lo]}"
 # A grab-bag of Bash idioms that come up constantly in bisection scripts.
 
 # 1) Read a list of files NUL-separated (handles spaces, newlines in names).
-mapfile -d '' -t FILES < <(git ls-files -z '*.svelte')
+mapfile -d '' -t FILES &lt; &lt;(git ls-files -z '*.svelte')
 
 # 2) Run a predicate against each file in parallel, fail-fast on first failure.
 printf '%s\0' "${FILES[@]}" | xargs -0 -n 1 -P 8 \
-  bash -c 'pnpm exec svelte-check --filter "$0" >/dev/null 2>&1 || { echo "FAIL: $0"; exit 1; }'
+  bash -c 'pnpm exec svelte-check --filter "$0" &gt;/dev/null 2&gt;&amp;1 || { echo "FAIL: $0"; exit 1; }'
 
 # 3) Compute a SHA of a set of files (for memoization keys).
 KEY=$(printf '%s\n' "${FILES[@]}" | sort | sha256sum | cut -c1-12)
@@ -2055,7 +2137,7 @@ suspects=( "${SUSPECTS[@]}" )
 others=()
 declare -A in_suspects
 for s in "${suspects[@]}"; do in_suspects["$s"]=1; done
-for f in "${all[@]}"; do [[ -z "${in_suspects[$f]:-}" ]] && others+=( "$f" ); done
+for f in "${all[@]}"; do [[ -z "${in_suspects[$f]:-}" ]] &amp;&amp; others+=( "$f" ); done
 
 # 5) Run a command with a deadline.
 timeout 30s "$PRED" "$@"
@@ -2065,9 +2147,9 @@ case $? in
   124) echo "TIMED OUT — count as bad? or skip?";;
 esac
 
-# 6) Save & restore git state around any bisection that edits the worktree.
-trap 'git stash pop >/dev/null 2>&1 || true' EXIT
-git stash push -u -m "bisect-runtime" >/dev/null
+# 6) Save &amp; restore git state around any bisection that edits the worktree.
+trap 'git stash pop &gt;/dev/null 2&gt;&amp;1 || true' EXIT
+git stash push -u -m "bisect-runtime" &gt;/dev/null
 # … run experimental bisection that edits files …
 </pre>
 
@@ -2079,7 +2161,7 @@ git stash push -u -m "bisect-runtime" >/dev/null
 # Ctrl-C, drink coffee, fix your predicate, and continue.
 #
 # USAGE:
-#   ./bash-l4-resumable.sh start "<list-cmd>" "<predicate>"
+#   ./bash-l4-resumable.sh start "&lt;list-cmd&gt;" "&lt;predicate&gt;"
 #   ./bash-l4-resumable.sh continue
 #   ./bash-l4-resumable.sh status
 #   ./bash-l4-resumable.sh abort
@@ -2089,26 +2171,26 @@ STATE="${BISECT_STATE:-/tmp/bisect.state}"
 
 cmd_start() {
   local list_cmd="$1" pred="$2"
-  mapfile -t FILES < <(eval "$list_cmd" | sort -u)
-  printf '%s\n' "$pred"  > "$STATE.pred"
-  printf '%s\n' "${FILES[@]}" > "$STATE.files"
-  echo "0 $(( ${#FILES[@]} - 1 ))" > "$STATE.range"
+  mapfile -t FILES &lt; &lt;(eval "$list_cmd" | sort -u)
+  printf '%s\n' "$pred"  &gt; "$STATE.pred"
+  printf '%s\n' "${FILES[@]}" &gt; "$STATE.files"
+  echo "0 $(( ${#FILES[@]} - 1 ))" &gt; "$STATE.range"
   echo "Started bisection over ${#FILES[@]} candidates."
 }
 
 cmd_continue() {
-  local pred=$(< "$STATE.pred")
-  mapfile -t FILES < "$STATE.files"
-  read lo hi < "$STATE.range"
-  while (( lo < hi )); do
+  local pred=$(&lt; "$STATE.pred")
+  mapfile -t FILES &lt; "$STATE.files"
+  read lo hi &lt; "$STATE.range"
+  while (( lo &lt; hi )); do
     local mid=$(( (lo + hi) / 2 ))
     local half=("${FILES[@]:lo:mid-lo+1}")
-    if $pred "${half[@]}" >/dev/null 2>&1; then
+    if $pred "${half[@]}" &gt;/dev/null 2&gt;&amp;1; then
       lo=$((mid + 1))
     else
       hi=$mid
     fi
-    echo "$lo $hi" > "$STATE.range"
+    echo "$lo $hi" &gt; "$STATE.range"
     printf '\rprogress: lo=%d hi=%d   ' "$lo" "$hi"
   done
   echo
@@ -2118,8 +2200,8 @@ cmd_continue() {
 
 cmd_status() {
   [ -f "$STATE.range" ] || { echo "no active bisection"; return; }
-  read lo hi < "$STATE.range"
-  mapfile -t FILES < "$STATE.files"
+  read lo hi &lt; "$STATE.range"
+  mapfile -t FILES &lt; "$STATE.files"
   echo "lo=$lo hi=$hi  remaining $((hi - lo + 1))/${#FILES[@]}"
 }
 
@@ -2155,17 +2237,17 @@ bisect_array() {
 
   local lo=0 hi=$(( ${#_arr[@]} - 1 )) mid round=0
   if [ -f "$_state" ]; then
-    read lo hi < "$_state"
+    read lo hi &lt; "$_state"
     echo "resuming from saved state: lo=$lo hi=$hi"
   fi
 
-  trap 'echo "$lo $hi" > "$_state"; echo "Saved state to $_state"; return 130' INT
+  trap 'echo "$lo $hi" &gt; "$_state"; echo "Saved state to $_state"; return 130' INT
 
-  while (( lo < hi )); do
+  while (( lo &lt; hi )); do
     round=$((round + 1))
     mid=$(( (lo + hi) / 2 ))
     local half=( "${_arr[@]:lo:mid-lo+1}" )
-    if "$_pred" "${half[@]}" >/dev/null 2>&1; then
+    if "$_pred" "${half[@]}" &gt;/dev/null 2&gt;&amp;1; then
       lo=$((mid + 1))
     else
       hi=$mid
@@ -2186,10 +2268,10 @@ bisect_array() {
 set -euo pipefail
 source ./bash-bisect.sh
 
-mapfile -t FILES < <(git ls-files '*.svelte' | sort)
+mapfile -t FILES &lt; &lt;(git ls-files '*.svelte' | sort)
 
 # Define your predicate as a function. The subset is in "$@".
-check() { pnpm exec svelte-check --filter "$@" >/dev/null 2>&1; }
+check() { pnpm exec svelte-check --filter "$@" &gt;/dev/null 2&gt;&amp;1; }
 
 CULPRIT=$(bisect_array FILES check)
 echo "Will now fix: $CULPRIT"
@@ -2204,37 +2286,37 @@ echo "Will now fix: $CULPRIT"
 # Use only when each predicate call is independent and side-effect-free.
 set -euo pipefail
 
-PRED="${1:?usage: $0 <predicate> <list-cmd>}"
+PRED="${1:?usage: $0 &lt;predicate&gt; &lt;list-cmd&gt;}"
 LIST="${2:?missing list cmd}"
 
-mapfile -t F < <(eval "$LIST" | sort -u)
+mapfile -t F &lt; &lt;(eval "$LIST" | sort -u)
 lo=0; hi=$(( ${#F[@]} - 1 ))
 
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   L=( "${F[@]:lo:mid-lo+1}" )
   U=( "${F[@]:mid+1:hi-mid}" )
 
   # Run both in parallel; capture each return code.
-  $PRED "${L[@]}" >/tmp/bi-L.log 2>&1 & PL=$!
-  $PRED "${U[@]}" >/tmp/bi-U.log 2>&1 & PU=$!
+  $PRED "${L[@]}" &gt;/tmp/bi-L.log 2&gt;&amp;1 &amp; PL=$!
+  $PRED "${U[@]}" &gt;/tmp/bi-U.log 2&gt;&amp;1 &amp; PU=$!
 
   # Wait for the FIRST to finish.
   wait -n
-  if ! kill -0 "$PL" 2>/dev/null; then
+  if ! kill -0 "$PL" 2&gt;/dev/null; then
     wait "$PL"; rcL=$?
     # If lower is bad, we already know what to do — kill upper.
-    if (( rcL != 0 )); then kill "$PU" 2>/dev/null; wait "$PU" 2>/dev/null; hi=$mid; continue; fi
+    if (( rcL != 0 )); then kill "$PU" 2&gt;/dev/null; wait "$PU" 2&gt;/dev/null; hi=$mid; continue; fi
     wait "$PU"; rcU=$?
   else
     wait "$PU"; rcU=$?
-    if (( rcU != 0 )); then kill "$PL" 2>/dev/null; wait "$PL" 2>/dev/null; lo=$((mid + 1)); continue; fi
+    if (( rcU != 0 )); then kill "$PL" 2&gt;/dev/null; wait "$PL" 2&gt;/dev/null; lo=$((mid + 1)); continue; fi
     wait "$PL"; rcL=$?
   fi
 
   # Both finished. By the bisection invariant exactly one is bad.
-  if (( rcL != 0 && rcU == 0 )); then hi=$mid
-  elif (( rcL == 0 && rcU != 0 )); then lo=$((mid + 1))
+  if (( rcL != 0 &amp;&amp; rcU == 0 )); then hi=$mid
+  elif (( rcL == 0 &amp;&amp; rcU != 0 )); then lo=$((mid + 1))
   else echo "Invariant broken at round $mid — both halves $((rcL==0?good:bad))/$((rcU==0?good:bad))"; exit 2
   fi
 done
@@ -2261,24 +2343,24 @@ FLAGS=( "$@" )
 reproduces() {
   local env=""
   for f in "$@"; do env+="$f=1 "; done
-  eval "$env pnpm test --run >/dev/null 2>&1" && return 1 || return 0
+  eval "$env pnpm test --run &gt;/dev/null 2&gt;&amp;1" &amp;&amp; return 1 || return 0
 }
 
 # Δ-debug style recursive minimization.
 ddmin() {
   local -a S=( "$@" )
   local n=2
-  while (( ${#S[@]} > 1 )); do
+  while (( ${#S[@]} &gt; 1 )); do
     local size=$(( (${#S[@]} + n - 1) / n ))
     local found=0
-    for (( i = 0; i < ${#S[@]}; i += size )); do
+    for (( i = 0; i &lt; ${#S[@]}; i += size )); do
       local subset=( "${S[@]:i:size}" )
       local complement=( "${S[@]:0:i}" "${S[@]:i+size}" )
       if reproduces "${subset[@]}"; then S=( "${subset[@]}" ); n=2; found=1; break
       elif reproduces "${complement[@]}"; then S=( "${complement[@]}" ); n=$(( n - 1 )); found=1; break
       fi
     done
-    (( found )) || { (( n >= ${#S[@]} )) && break; n=$(( n * 2 )); (( n > ${#S[@]} )) && n=${#S[@]}; }
+    (( found )) || { (( n &gt;= ${#S[@]} )) &amp;&amp; break; n=$(( n * 2 )); (( n &gt; ${#S[@]} )) &amp;&amp; n=${#S[@]}; }
   done
   echo "Minimal failing set: ${S[*]}"
 }
@@ -2303,7 +2385,7 @@ ddmin "${FLAGS[@]}"
 
 set -eu
 
-local pred="${1:?usage: $0 <predicate> <glob>}"
+local pred="${1:?usage: $0 &lt;predicate&gt; &lt;glob&gt;}"
 local glob="${2:?missing glob}"
 
 # Expand the glob into an array. (.) = only regular files.
@@ -2315,9 +2397,9 @@ echo "candidates: ${#files}"
 
 # Zsh arrays are 1-indexed by default. $files[1,$mid] is a slice.
 local lo=1 hi=${#files} mid
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   (( mid = (lo + hi) / 2 ))
-  if ${=pred} ${files[lo,mid]} >/dev/null 2>&1; then
+  if ${=pred} ${files[lo,mid]} &gt;/dev/null 2&gt;&amp;1; then
     (( lo = mid + 1 ))
   else
     hi=$mid
@@ -2383,13 +2465,13 @@ bisect() {
   F=( "$@" )
 
   local lo=1 hi=${#F} mid round=0
-  while (( lo < hi )); do
+  while (( lo &lt; hi )); do
     (( round++ ))
     (( mid = (lo + hi) / 2 ))
     local -a half
     half=( $F[lo,mid] )
     printf 'round %2d  [%4d..%4d]  %3d items  ' $round $lo $mid ${#half}
-    if ${=pred} $half >/dev/null 2>&1; then
+    if ${=pred} $half &gt;/dev/null 2&gt;&amp;1; then
       print good
       (( lo = mid + 1 ))
     else
@@ -2421,7 +2503,7 @@ bisect "pnpm exec svelte-check --filter" $files
 # Usage:
 #   source ./zsh-bisect.zsh
 #   files=( ${(f)"$(git ls-files '*.svelte')"} )
-#   check() { pnpm exec svelte-check --filter "$@" >/dev/null 2>&1; }
+#   check() { pnpm exec svelte-check --filter "$@" &gt;/dev/null 2&gt;&amp;1; }
 #   bisect_array files check
 
 bisect_array() {
@@ -2434,25 +2516,25 @@ bisect_array() {
   local lo=1 hi=${#_arr} mid round=0
 
   if [[ -f $_state ]]; then
-    read lo hi < $_state
+    read lo hi &lt; $_state
     print "resuming: lo=$lo hi=$hi"
   fi
 
   # On SIGINT, persist state AND push the resume command into history/ZLE so
   # pressing Up + Enter continues the session.
   TRAPINT() {
-    print "$lo $hi" > $_state
+    print "$lo $hi" &gt; $_state
     print -s "bisect_array $_name $_pred  # resume saved at $_state"
     print "\nSaved state. Press Up-arrow to recall the resume command."
     return 130
   }
 
-  while (( lo < hi )); do
+  while (( lo &lt; hi )); do
     (( round++ ))
     (( mid = (lo + hi) / 2 ))
     local -a half
     half=( $_arr[lo,mid] )
-    if $_pred $half >/dev/null 2>&1; then
+    if $_pred $half &gt;/dev/null 2&gt;&amp;1; then
       (( lo = mid + 1 ))
     else
       hi=$mid
@@ -2473,8 +2555,8 @@ bisect_array() {
 typeset -g BISECT_AUTOSAVE=/tmp/bisect-autosave-$UID.state
 
 _bisect_autosave_precmd() {
-  [[ -n ${BISECT_LO:-} && -n ${BISECT_HI:-} ]] || return
-  print "$BISECT_LO $BISECT_HI" > $BISECT_AUTOSAVE
+  [[ -n ${BISECT_LO:-} &amp;&amp; -n ${BISECT_HI:-} ]] || return
+  print "$BISECT_LO $BISECT_HI" &gt; $BISECT_AUTOSAVE
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _bisect_autosave_precmd
@@ -2493,14 +2575,14 @@ zmodload zsh/datetime
 
 setopt extendedglob
 
-transcript=( ${(f)"$(< $1)"} )       # commands, one per line
+transcript=( ${(f)"$(&lt; $1)"} )       # commands, one per line
 N=${#transcript}
 
 mem_after_lines() {
   # Spawn node --repl in a pty, feed it $1 lines, query process.memoryUsage().
   local -a lines
   lines=( "$@" )
-  zpty -d repl 2>/dev/null
+  zpty -d repl 2&gt;/dev/null
   zpty repl 'node --interactive --no-warnings'
   zpty -w repl ".clear"
   for cmd in $lines; do
@@ -2518,13 +2600,13 @@ baseline=$(mem_after_lines)        # empty REPL baseline
 LEAK_BYTES=${LEAK_BYTES:-50_000_000}
 
 lo=1; hi=$N
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   (( mid = (lo + hi) / 2 ))
   half=( $transcript[lo,mid] )
   bytes=$(mem_after_lines $half)
   growth=$(( bytes - baseline ))
   print "[$lo..$mid] heap: ${(l:12:)bytes}  growth ${(l:10:)growth}"
-  if (( growth > LEAK_BYTES )); then hi=$mid; else (( lo = mid + 1 )); fi
+  if (( growth &gt; LEAK_BYTES )); then hi=$mid; else (( lo = mid + 1 )); fi
 done
 print "leaking command: $transcript[lo]"
 </pre>
@@ -2543,7 +2625,7 @@ predicate() {
 bisect_with_diag() {
   local -a F=( "$@" )
   local lo=1 hi=${#F} mid
-  while (( lo < hi )); do
+  while (( lo &lt; hi )); do
     (( mid = (lo + hi) / 2 ))
     local half=( $F[lo,mid] )
 
@@ -2606,22 +2688,22 @@ jobs:
           GOOD_SHA=$(gh run list \
             --workflow="Nightly E2E" --status success --limit 1 \
             --json headSha --jq '.[0].headSha')
-          echo "good_sha=$GOOD_SHA" >> "$GITHUB_OUTPUT"
-          echo "bad_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "good_sha=$GOOD_SHA" &gt;&gt; "$GITHUB_OUTPUT"
+          echo "bad_sha=${{ github.sha }}" &gt;&gt; "$GITHUB_OUTPUT"
           echo "Bisecting $GOOD_SHA..${{ github.sha }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write predicate
         run: |
-          cat > bisect-predicate.sh <<'EOF'
+          cat &gt; bisect-predicate.sh &lt;&lt;'EOF'
           #!/usr/bin/env bash
           set -uo pipefail
-          pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
-          pnpm build >/dev/null 2>&1 || exit 125
-          pnpm e2e --reporter=line >/tmp/e2e.log 2>&1
+          pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+          pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+          pnpm e2e --reporter=line &gt;/tmp/e2e.log 2&gt;&amp;1
           rc=$?
-          [ $rc -eq 0 ] && exit 0 || exit 1
+          [ $rc -eq 0 ] &amp;&amp; exit 0 || exit 1
           EOF
           chmod +x bisect-predicate.sh
 
@@ -2635,7 +2717,7 @@ jobs:
           # Pull the culprit sha out of the log.
           CULPRIT=$(grep -E '[0-9a-f]{7,40} is the first bad commit' /tmp/bisect.log \
                     | awk '{print $1}' | head -n 1)
-          echo "culprit=$CULPRIT" >> "$GITHUB_OUTPUT"
+          echo "culprit=$CULPRIT" &gt;&gt; "$GITHUB_OUTPUT"
           git bisect reset
 
       - name: Post culprit to PR
@@ -2646,7 +2728,7 @@ jobs:
         run: |
           # Find the PR that introduced this commit (squash-merge → PR number in message).
           PR_NUM=$(git log -1 --format=%s "$CULPRIT" | grep -oE '#[0-9]+' | tr -d '#' | head -n1)
-          AUTHOR=$(git log -1 --format='%an <%ae>' "$CULPRIT")
+          AUTHOR=$(git log -1 --format='%an &lt;%ae&gt;' "$CULPRIT")
           SHORT=$(git log -1 --format='%h %s' "$CULPRIT")
           BODY="Automated bisection identified \`$SHORT\` as the first bad commit.
 
@@ -2689,17 +2771,17 @@ jobs:
 set -euo pipefail
 
 BAD="${1:-HEAD}"
-GOOD="${2:?usage: $0 <bad> <good>}"
+GOOD="${2:?usage: $0 &lt;bad&gt; &lt;good&gt;}"
 LOG=~/.cache/bisect/run-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$LOG"
 
 git bisect start "$BAD" "$GOOD"
 git bisect run bash -c '
   set -uo pipefail
-  pnpm install --frozen-lockfile --prefer-offline > "'"$LOG"'/install.$(git rev-parse --short HEAD).log" 2>&1 || exit 125
-  pnpm build > "'"$LOG"'/build.$(git rev-parse --short HEAD).log" 2>&1 || exit 125
-  pnpm e2e --reporter=line > "'"$LOG"'/e2e.$(git rev-parse --short HEAD).log" 2>&1
-' 2>&1 | tee "$LOG/bisect.log"
+  pnpm install --frozen-lockfile --prefer-offline &gt; "'"$LOG"'/install.$(git rev-parse --short HEAD).log" 2&gt;&amp;1 || exit 125
+  pnpm build &gt; "'"$LOG"'/build.$(git rev-parse --short HEAD).log" 2&gt;&amp;1 || exit 125
+  pnpm e2e --reporter=line &gt; "'"$LOG"'/e2e.$(git rev-parse --short HEAD).log" 2&gt;&amp;1
+' 2&gt;&amp;1 | tee "$LOG/bisect.log"
 git bisect reset
 echo "Logs: $LOG"
 </pre>
@@ -2732,21 +2814,21 @@ echo "Logs: $LOG"
 set -euo pipefail
 OLD_FILE="$1"; NEW_FILE="$2"; PREDICATE="$3"
 
-mapfile -t SERVICES < <(awk -F= '{print $1}' "$OLD_FILE" | sort)
+mapfile -t SERVICES &lt; &lt;(awk -F= '{print $1}' "$OLD_FILE" | sort)
 N="${#SERVICES[@]}"
 declare -A OLD NEW
-while IFS='=' read -r k v; do OLD["$k"]="$v"; done < "$OLD_FILE"
-while IFS='=' read -r k v; do NEW["$k"]="$v"; done < "$NEW_FILE"
+while IFS='=' read -r k v; do OLD["$k"]="$v"; done &lt; "$OLD_FILE"
+while IFS='=' read -r k v; do NEW["$k"]="$v"; done &lt; "$NEW_FILE"
 
 apply_tags() {
   local -a chosen_new=( "$@" )
   declare -A is_new
   for s in "${chosen_new[@]}"; do is_new["$s"]=1; done
   # Build a values.yaml override with one image per service.
-  : > /tmp/overrides.yaml
+  : &gt; /tmp/overrides.yaml
   for s in "${SERVICES[@]}"; do
-    local tag="${OLD[$s]}"; [[ -n "${is_new[$s]:-}" ]] && tag="${NEW[$s]}"
-    cat >> /tmp/overrides.yaml <<YAML
+    local tag="${OLD[$s]}"; [[ -n "${is_new[$s]:-}" ]] &amp;&amp; tag="${NEW[$s]}"
+    cat &gt;&gt; /tmp/overrides.yaml &lt;&lt;YAML
 $s:
   image: ${tag%:*}
   tag: ${tag##*:}
@@ -2759,11 +2841,11 @@ YAML
 apply_tags                          # all OLD → should pass
 $PREDICATE || { echo "Baseline broken; not a bump regression"; exit 2; }
 apply_tags "${SERVICES[@]}"         # all NEW → should fail
-$PREDICATE && { echo "All-new passes; nothing to find"; exit 0; }
+$PREDICATE &amp;&amp; { echo "All-new passes; nothing to find"; exit 0; }
 
 # Bisect.
 lo=0; hi=$((N - 1))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   new_set=( "${SERVICES[@]:0:mid+1}" )
   apply_tags "${new_set[@]}"
@@ -2788,9 +2870,9 @@ echo "New: ${NEW[${SERVICES[$lo]}]}"
 SVC="$1"
 helm upgrade --install platform ./chart \
   --reuse-values \
-  --set "$SVC.tag=$(grep -oE '[^:]+$' <<< "${OLD[$SVC]}")" \
+  --set "$SVC.tag=$(grep -oE '[^:]+$' &lt;&lt;&lt; "${OLD[$SVC]}")" \
   --wait
-./run-e2e.sh && echo "CONFIRMED: $SVC was the sole cause" \
+./run-e2e.sh &amp;&amp; echo "CONFIRMED: $SVC was the sole cause" \
               || echo "INTERACTION — try delta-debugging the full bump set"
 </pre>
 
@@ -2811,31 +2893,31 @@ helm upgrade --install platform ./chart \
 # Preserves the header row; bisects only the data rows.
 set -euo pipefail
 
-CSV="${1:?usage: $0 <csv> <ingest-cmd>}"
+CSV="${1:?usage: $0 &lt;csv&gt; &lt;ingest-cmd&gt;}"
 INGEST="${2:?missing ingest command}"
 
 HEADER=$(head -n 1 "$CSV")
-mapfile -t ROWS < <(tail -n +2 "$CSV")
+mapfile -t ROWS &lt; &lt;(tail -n +2 "$CSV")
 N="${#ROWS[@]}"
 echo "CSV has $N data rows"
 
 slice_to_file() {
   local from="$1" to="$2"
-  printf '%s\n' "$HEADER" > /tmp/bisect.csv
-  for (( i = from; i <= to; i++ )); do printf '%s\n' "${ROWS[$i]}" >> /tmp/bisect.csv; done
+  printf '%s\n' "$HEADER" &gt; /tmp/bisect.csv
+  for (( i = from; i &lt;= to; i++ )); do printf '%s\n' "${ROWS[$i]}" &gt;&gt; /tmp/bisect.csv; done
 }
 
 # Sanity check: full file fails, empty file succeeds.
 slice_to_file 0 $((N - 1))
-$INGEST /tmp/bisect.csv && { echo "Full file passes; not reproducing"; exit 0; }
+$INGEST /tmp/bisect.csv &amp;&amp; { echo "Full file passes; not reproducing"; exit 0; }
 slice_to_file 0 -1
 $INGEST /tmp/bisect.csv || { echo "Empty file fails; ingest is broken regardless"; exit 2; }
 
 lo=0; hi=$((N - 1))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   slice_to_file "$lo" "$mid"
-  if $INGEST /tmp/bisect.csv >/dev/null 2>&1; then
+  if $INGEST /tmp/bisect.csv &gt;/dev/null 2&gt;&amp;1; then
     lo=$((mid + 1))
   else
     hi=$mid
@@ -2857,7 +2939,7 @@ echo "${ROWS[$lo]}"
 // flags together (not a clean monotonic switch).
 //
 // PREDICATE: a shell command that exits 0 iff the bug REPRODUCES under the
-//            flags exported as FF_<name>=1.
+//            flags exported as FF_&lt;name&gt;=1.
 //
 // USAGE:
 //   node flag-ddmin.mjs '["FF_NEW_CART","FF_FAST_CHECKOUT","FF_ML_RANK", ...]' "./run-bug-check.sh"
@@ -2878,17 +2960,17 @@ if (!reproduces(FLAGS)) { console.log('Full set does not reproduce.'); process.e
 
 let S = [...FLAGS];
 let n = 2;
-while (S.length >= 2) {
+while (S.length &gt;= 2) {
   const chunkSize = Math.ceil(S.length / n);
   let found = false;
-  for (let i = 0; i < S.length; i += chunkSize) {
+  for (let i = 0; i &lt; S.length; i += chunkSize) {
     const subset = S.slice(i, i + chunkSize);
     const complement = [...S.slice(0, i), ...S.slice(i + chunkSize)];
     if (reproduces(subset))      { S = subset;     n = 2;          found = true; break; }
     if (reproduces(complement))  { S = complement; n = Math.max(n - 1, 2); found = true; break; }
   }
   if (!found) {
-    if (n >= S.length) break;
+    if (n &gt;= S.length) break;
     n = Math.min(n * 2, S.length);
   }
 }
@@ -2901,34 +2983,34 @@ console.log('1-minimal failing flag set:', S);
 # bisect-env.sh
 # Capture a working env and a broken env, find which variable broke things.
 #
-# To capture: `env > good.env`  on a healthy machine; `env > bad.env` on a sick one.
+# To capture: `env &gt; good.env`  on a healthy machine; `env &gt; bad.env` on a sick one.
 set -euo pipefail
 
 GOOD="$1"; BAD="$2"; PRED="$3"
 
 # Variables that DIFFER between the two envs.
-diff_keys=$(comm -13 <(sort "$GOOD") <(sort "$BAD") | awk -F= '{print $1}' | sort -u)
-mapfile -t VARS < <(echo "$diff_keys")
+diff_keys=$(comm -13 &lt;(sort "$GOOD") &lt;(sort "$BAD") | awk -F= '{print $1}' | sort -u)
+mapfile -t VARS &lt; &lt;(echo "$diff_keys")
 echo "Differing env vars: ${#VARS[@]}"
 
 declare -A BAD_VAL
-while IFS='=' read -r k v; do BAD_VAL["$k"]="$v"; done < "$BAD"
+while IFS='=' read -r k v; do BAD_VAL["$k"]="$v"; done &lt; "$BAD"
 
 # Bisect: start from GOOD env, progressively apply BAD overrides.
 run_with() {
   local -a apply=( "$@" )
   ( set -a
-    while IFS='=' read -r k v; do export "$k=$v"; done < "$GOOD"
+    while IFS='=' read -r k v; do export "$k=$v"; done &lt; "$GOOD"
     for k in "${apply[@]}"; do export "$k=${BAD_VAL[$k]}"; done
     bash -c "$PRED"
   )
 }
 
 lo=0; hi=$(( ${#VARS[@]} - 1 ))
-while (( lo < hi )); do
+while (( lo &lt; hi )); do
   mid=$(( (lo + hi) / 2 ))
   apply=( "${VARS[@]:0:mid+1}" )
-  if run_with "${apply[@]}" >/dev/null 2>&1; then
+  if run_with "${apply[@]}" &gt;/dev/null 2&gt;&amp;1; then
     lo=$((mid + 1))
   else
     hi=$mid
@@ -2980,7 +3062,7 @@ CULPRIT="$1"
 
 # 1) Predicate must FAIL at the culprit.
 git checkout "$CULPRIT"
-./bisect-predicate.sh && { echo "WAT: culprit passes the predicate"; exit 2; }
+./bisect-predicate.sh &amp;&amp; { echo "WAT: culprit passes the predicate"; exit 2; }
 
 # 2) Predicate must PASS at the culprit's PARENT.
 git checkout "$CULPRIT^"
@@ -2989,7 +3071,7 @@ git checkout "$CULPRIT^"
 # 3) Reverting the culprit on top of HEAD must make HEAD pass.
 git checkout -
 git revert --no-edit "$CULPRIT"
-./bisect-predicate.sh && echo "CONFIRMED: revert fixes HEAD" || echo "Revert does NOT fix — interaction bug"
+./bisect-predicate.sh &amp;&amp; echo "CONFIRMED: revert fixes HEAD" || echo "Revert does NOT fix — interaction bug"
 git reset --hard HEAD^   # undo the revert
 </pre>
 
@@ -3104,6 +3186,8 @@ git reset --hard HEAD^   # undo the revert
 
   // ---- Monaco bootstrap
   let monacoReady = null;
+  const editors = []; // track every Monaco instance so we can re-theme them.
+
   function ensureMonaco() {
     if (monacoReady) return monacoReady;
     monacoReady = new Promise((resolve) => {
@@ -3120,10 +3204,25 @@ git reset --hard HEAD^   # undo the revert
             'editorLineNumber.foreground': '#5a6171'
           }
         });
+        monaco.editor.defineTheme('bisect-light', {
+          base: 'vs',
+          inherit: true,
+          rules: [],
+          colors: {
+            'editor.background': '#ffffff',
+            'editor.foreground': '#1c2025',
+            'editor.lineHighlightBackground': '#f5f7fa',
+            'editorLineNumber.foreground': '#a0a8b4'
+          }
+        });
         resolve();
       });
     });
     return monacoReady;
+  }
+
+  function currentMonacoTheme() {
+    return document.body.dataset.theme === 'light' ? 'bisect-light' : 'bisect-dark';
   }
 
   function langFor(tag) {
@@ -3172,7 +3271,7 @@ git reset --hard HEAD^   # undo the revert
       const editor = monaco.editor.create(editorHost, {
         value: code,
         language: lang,
-        theme: 'bisect-dark',
+        theme: currentMonacoTheme(),
         readOnly: true,
         automaticLayout: true,
         minimap: { enabled: false },
@@ -3183,6 +3282,7 @@ git reset --hard HEAD^   # undo the revert
         wordWrap: 'off',
         scrollbar: { vertical: 'auto', horizontal: 'auto', alwaysConsumeMouseWheel: false }
       });
+      editors.push(editor);
 
       const copyBtn = header.querySelector('.copy-btn');
       copyBtn.addEventListener('click', async () => {
@@ -3204,6 +3304,130 @@ git reset --hard HEAD^   # undo the revert
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   }
+
+  // ---- theme toggle
+  const THEME_KEY = 'bisect-curriculum-theme';
+  function applyTheme(theme) {
+    document.body.dataset.theme = theme;
+    const icon = document.getElementById('theme-icon');
+    const label = document.getElementById('theme-label');
+    if (theme === 'light') { icon.textContent = '☼'; label.textContent = 'Dark'; }
+    else                   { icon.textContent = '☾'; label.textContent = 'Light'; }
+    // Re-theme every existing Monaco editor.
+    if (window.monaco) {
+      monaco.editor.setTheme(currentMonacoTheme());
+    }
+    try { localStorage.setItem(THEME_KEY, theme); } catch {}
+  }
+  (function initTheme() {
+    let stored;
+    try { stored = localStorage.getItem(THEME_KEY); } catch {}
+    if (stored === 'light' || stored === 'dark') {
+      applyTheme(stored);
+    } else {
+      // Prefer system preference if no stored value.
+      const prefersLight = window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: light)').matches;
+      applyTheme(prefersLight ? 'light' : 'dark');
+    }
+  })();
+  document.getElementById('theme-btn').addEventListener('click', () => {
+    applyTheme(document.body.dataset.theme === 'light' ? 'dark' : 'light');
+  });
+
+  // ---- search
+  function highlightInString(haystack, needle) {
+    if (!needle) return escapeHtml(haystack);
+    const re = new RegExp('(' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    return escapeHtml(haystack).replace(
+      new RegExp('(' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'),
+      '<mark>$1</mark>'
+    );
+  }
+  // Build a haystack per page = title + text content (without code blocks).
+  const pageHaystacks = PAGES.map((p, i) => {
+    const sec = document.querySelector('section.page[data-page="' + i + '"]');
+    const clone = sec ? sec.cloneNode(true) : null;
+    if (clone) clone.querySelectorAll('pre.code').forEach(el => el.remove());
+    const text = (clone ? clone.textContent : p.title).replace(/\s+/g, ' ').trim();
+    return (p.title + ' ' + text).toLowerCase();
+  });
+
+  function applySearch(q) {
+    const needle = q.trim().toLowerCase();
+    const tocAnchors = Array.from(document.querySelectorAll('#toc-list a'));
+    const tocParts   = Array.from(document.querySelectorAll('#toc-list .part'));
+
+    if (!needle) {
+      tocAnchors.forEach((a) => {
+        a.classList.remove('hidden');
+        const i = Number(a.dataset.idx);
+        a.querySelector('span:last-child').textContent = PAGES[i].title;
+      });
+      tocParts.forEach(p => p.classList.remove('hidden'));
+      const empty = document.getElementById('search-empty');
+      if (empty) empty.remove();
+      return;
+    }
+
+    let matches = 0;
+    tocAnchors.forEach((a) => {
+      const i = Number(a.dataset.idx);
+      const hit = pageHaystacks[i].includes(needle);
+      a.classList.toggle('hidden', !hit);
+      if (hit) {
+        matches++;
+        // Highlight the matched portion of the title (if any).
+        const titleSpan = a.querySelector('span:last-child');
+        titleSpan.innerHTML = highlightInString(PAGES[i].title, q.trim());
+      }
+    });
+
+    // Hide a Part heading if every page under it is hidden.
+    tocParts.forEach((p) => {
+      let next = p.nextElementSibling;
+      let anyVisible = false;
+      while (next && next.tagName === 'A') {
+        if (!next.classList.contains('hidden')) { anyVisible = true; break; }
+        next = next.nextElementSibling;
+      }
+      p.classList.toggle('hidden', !anyVisible);
+    });
+
+    let empty = document.getElementById('search-empty');
+    if (matches === 0) {
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.id = 'search-empty';
+        empty.className = 'search-empty';
+        empty.textContent = 'No pages match.';
+        document.getElementById('toc-list').appendChild(empty);
+      }
+    } else if (empty) empty.remove();
+  }
+
+  const searchInput = document.getElementById('search');
+  let searchTimer = null;
+  searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => applySearch(e.target.value), 80);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { searchInput.value = ''; applySearch(''); searchInput.blur(); }
+    if (e.key === 'Enter') {
+      // Jump to first visible match.
+      const first = document.querySelector('#toc-list a:not(.hidden)');
+      if (first) go(Number(first.dataset.idx));
+    }
+  });
+  // Global "/" focuses search.
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test((e.target||{}).tagName||'')) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
 
   // first render
   render();
