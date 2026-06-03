@@ -1,0 +1,5 @@
+d4e5f6a is the first bad commit
+commit d4e5f6a
+Author: dev@example.com
+    feat: rewrite the payment pipeline (#1284)
+ 42 files changed, 3812 insertions(+), 1204 deletions(-)

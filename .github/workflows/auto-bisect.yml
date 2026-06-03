@@ -1,0 +1,101 @@
+name: Auto-bisect on nightly failure
+
+on:
+  workflow_run:
+    workflows: ["Nightly E2E"]
+    types: [completed]
+
+jobs:
+  bisect:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # need full history for bisect
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Find last green nightly
+        id: last_green
+        run: |
+          # Find the most recent successful run of the Nightly E2E workflow.
+          GOOD_SHA=$(gh run list \
+            --workflow="Nightly E2E" --status success --limit 1 \
+            --json headSha --jq '.[0].headSha')
+          echo "good_sha=$GOOD_SHA" >> "$GITHUB_OUTPUT"
+          echo "bad_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "Bisecting $GOOD_SHA..${{ github.sha }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write predicate
+        run: |
+          cat > bisect-predicate.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
+          pnpm build >/dev/null 2>&1 || exit 125
+          pnpm e2e --reporter=line >/tmp/e2e.log 2>&1
+          rc=$?
+          [ $rc -eq 0 ] && exit 0 || exit 1
+          EOF
+          chmod +x bisect-predicate.sh
+
+      - name: Run bisection
+        id: bisect
+        run: |
+          git config user.email bisect-bot@noreply.github
+          git config user.name bisect-bot
+          git bisect start ${{ steps.last_green.outputs.bad_sha }} ${{ steps.last_green.outputs.good_sha }}
+          git bisect run ./bisect-predicate.sh | tee /tmp/bisect.log || true
+          # Pull the culprit sha out of the log.
+          CULPRIT=$(grep -E '[0-9a-f]{7,40} is the first bad commit' /tmp/bisect.log \
+                    | awk '{print $1}' | head -n 1)
+          echo "culprit=$CULPRIT" >> "$GITHUB_OUTPUT"
+          git bisect reset
+
+      - name: Post culprit to PR
+        if: steps.bisect.outputs.culprit != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CULPRIT: ${{ steps.bisect.outputs.culprit }}
+        run: |
+          # Find the PR that introduced this commit (squash-merge → PR number in message).
+          PR_NUM=$(git log -1 --format=%s "$CULPRIT" | grep -oE '#[0-9]+' | tr -d '#' | head -n1)
+          AUTHOR=$(git log -1 --format='%an <%ae>' "$CULPRIT")
+          SHORT=$(git log -1 --format='%h %s' "$CULPRIT")
+          BODY="Automated bisection identified \`$SHORT\` as the first bad commit.
+
+          Author: $AUTHOR
+          Commit: $CULPRIT
+
+          Triggering workflow: ${{ github.event.workflow_run.html_url }}
+          E2E log: see workflow artifacts."
+
+          if [ -n "$PR_NUM" ]; then
+            gh pr comment "$PR_NUM" --body "$BODY"
+          else
+            gh issue create --title "Nightly E2E broke at $SHORT" --body "$BODY" --label bisection,nightly
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bisect-logs
+          path: |
+            /tmp/bisect.log
+            /tmp/e2e.log

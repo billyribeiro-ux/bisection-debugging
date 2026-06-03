@@ -1,0 +1,7 @@
+$ git bisect bad
+Bisecting: 3 revisions left to test after this
+running ./predicate
+::good:: f3a2b1c
+Bisecting: ...
+::bad:: a4d5e6f
+::good:: 9c8b7a6     # ← but 9c8b7a6 is AFTER a4d5e6f!
