@@ -375,6 +375,757 @@
      replaced by Monaco editors at runtime.
      ============================================================ -->
 
+<template data-page-title="What Is a Bug, Really?" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">What Is a Bug, Really?</h2>
+<p class="lede">If you've never written software, the word "bug" sounds informal — a cute term for something that's broken. It's not. A bug is a precise concept, and understanding what it actually is changes how you think about every problem in this curriculum. This page explains it in plain language, with no prior coding experience assumed.</p>
+
+<h3>The shortest definition</h3>
+<p>A bug is <strong>a gap between what software does and what it should do</strong>. That's it. Three words: <em>should, does, gap.</em></p>
+<p>Example. You click "Buy Now." The site charges you $10 instead of $5. The <em>should</em>: charge $5. The <em>does</em>: charge $10. The <em>gap</em>: $5. That gap is the bug.</p>
+
+<h3>Why bugs happen</h3>
+<p>Software is made of instructions — millions of them, written by humans over years. Each instruction is exact: do this, then that, with these numbers. The smallest typo can flip the meaning. A single wrong character ("&lt;" instead of "&lt;=") can charge customers twice. There's no "the computer figured out what you meant" — computers do exactly what they're told.</p>
+<p>So bugs are inevitable. The question isn't "how do we write bug-free code" (we can't). The question is: <strong>when a bug appears, how fast can we find it?</strong> That's where this curriculum begins.</p>
+
+<h3>The three things you need to know about every bug</h3>
+<table class="cmp">
+<tr><th>Question</th><th>Why it matters</th></tr>
+<tr><td>What does it do? (the <em>does</em>)</td><td>You can't fix a bug you can't describe.</td></tr>
+<tr><td>What should it do? (the <em>should</em>)</td><td>Sometimes nobody actually agrees on this. That's a different problem from a bug.</td></tr>
+<tr><td>When did it start? (the <em>when</em>)</td><td>This is the question bisection answers. If you know when the gap appeared, you know <em>what changed</em> at that moment — and that's almost always the cause.</td></tr>
+</table>
+
+<h3>The "when" is the secret</h3>
+<p>Most beginners assume debugging is about <em>where</em> — "which line of code is wrong?" Experienced engineers know it's about <em>when</em> — "which change caused this?" Because at any moment in time, every line of code was either present-and-working or not-yet-written-or-broken. If you find the moment things changed from "working" to "broken," you've narrowed millions of lines to one change. That change is almost always your bug.</p>
+<p>This is what bisection does. It's a fast way to find <em>the moment things changed</em>.</p>
+
+<h3>The cost of bugs (a senior-engineer view)</h3>
+<p>Engineers at a junior level often think bugs are technical inconveniences. They're not. Bugs are economic events:</p>
+<ul>
+  <li>A bug that charges customers twice will get refunded — that's direct revenue loss.</li>
+  <li>A bug that crashes the app loses users — long-term revenue loss.</li>
+  <li>A bug that exposes private data costs lawsuit money and trust.</li>
+  <li>A bug that takes a week to find ties up engineers who could be building features.</li>
+</ul>
+<p>The cost of a bug is measured in money and time, not in "how hard it is to fix." A simple typo that takes two weeks to locate costs the same as two weeks of engineering payroll. <strong>This is why "how fast can we find it" matters — not as a personal pride thing, but as a real business cost.</strong></p>
+
+<h3>What this curriculum will give you</h3>
+<p>By the end you'll know how to:</p>
+<ol>
+  <li>Take a bug report and figure out what's actually happening.</li>
+  <li>Reproduce the bug reliably (this alone is most of debugging).</li>
+  <li>Use bisection to narrow millions of suspects to one in minutes.</li>
+  <li>Tell when bisection is the right tool and when it's not.</li>
+  <li>Design new systems so that future bugs are easy to find.</li>
+  <li>Lead other engineers through debugging without taking over.</li>
+</ol>
+<p>You don't need to be able to code to read what follows. The next few pages will give you just enough vocabulary to make sense of every example in the curriculum.</p>
+</template>
+
+<template data-page-title="The Terminal in 10 Minutes" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">The Terminal in 10 Minutes</h2>
+<p class="lede">Every code example in this curriculum runs in something called a "terminal." If you've only used software through windows, icons, and menus, the terminal looks weird and scary. It's not. It's just a different kind of door into the same computer — one that lets you give instructions in writing. Ten minutes from now you'll be able to follow every command in this curriculum.</p>
+
+<h3>What it actually is</h3>
+<p>A terminal is a text window where you type a command, press Enter, and the computer does it. That's the whole interface. There are no buttons. The cursor blinks; you tell it what to do.</p>
+
+<pre class="code" data-lang="text" data-title="what-terminal-looks-like.txt">user@my-laptop:~/Documents$ ls
+notes.txt    project/    photo.jpg
+
+user@my-laptop:~/Documents$ cd project
+user@my-laptop:~/Documents/project$ ls
+README.md   src/    package.json
+</pre>
+
+<p>The bit before the <code>$</code> is the "prompt" — it tells you who you are (<code>user</code>), what computer (<code>my-laptop</code>), and where you currently are in the file system (<code>~/Documents</code>, where <code>~</code> means "your home folder"). The <code>$</code> is just "your turn — type something."</p>
+
+<h3>The five commands you need to know</h3>
+<table class="cmp">
+<tr><th>Command</th><th>Means</th><th>Like clicking…</th></tr>
+<tr><td><code>ls</code></td><td>"list" the files here</td><td>Opening a folder window</td></tr>
+<tr><td><code>cd folder-name</code></td><td>"change directory" — go into a folder</td><td>Double-clicking a folder</td></tr>
+<tr><td><code>cd ..</code></td><td>Go back up one folder</td><td>Clicking the "back" arrow</td></tr>
+<tr><td><code>pwd</code></td><td>"print working directory" — where am I?</td><td>Reading the title bar of a folder window</td></tr>
+<tr><td><code>cat file-name</code></td><td>Print the contents of a text file</td><td>Double-clicking a text file</td></tr>
+</table>
+
+<p>That's enough to navigate any code project on any computer. Let's try it:</p>
+
+<pre class="code" data-lang="shell" data-title="first-session.sh"># See where you are.
+pwd
+# → /Users/alice  (or /home/alice on Linux)
+
+# Look around.
+ls
+# → Desktop  Documents  Downloads  Music  Pictures
+
+# Go into one of those.
+cd Documents
+ls
+# → notes.txt  project
+
+# Look at a file.
+cat notes.txt
+# → (whatever's inside notes.txt prints here)
+
+# Go back up.
+cd ..
+pwd
+# → /Users/alice
+</pre>
+
+<h3>Running a "script"</h3>
+<p>A "script" is just a file with commands inside it. To run one, type <code>./</code> followed by its name:</p>
+
+<pre class="code" data-lang="shell" data-title="run-a-script.sh">./hello.sh
+# → Hello, world!
+</pre>
+
+<p>The <code>./</code> means "in the current folder." Without it, the terminal looks for a system-wide command — and gets confused if you meant a local script.</p>
+
+<h3>Stopping something that's running</h3>
+<p>If a command takes too long or gets stuck, press <strong>Ctrl+C</strong> (Cmd+C on Mac — but use Ctrl+C in the terminal, even on Mac). That sends a "stop now" signal. Memorize this; you'll use it constantly.</p>
+
+<h3>The thing that confuses beginners most</h3>
+<p>Terminal commands give <em>no confirmation when they succeed</em>. If you type <code>cd Documents</code> and nothing prints, that means it worked. The Unix philosophy is: silence = success. Beginners often stare at the screen thinking "did anything happen?" Yes. The lack of error is the success message.</p>
+
+<div class="callout">
+<div class="callout-title">The principal-engineer angle</div>
+<p>Every engineer at every level uses the terminal daily. The reason isn't tradition — it's that the terminal is the most efficient interface ever invented for one specific thing: <strong>composing actions</strong>. You can stack commands, save them in scripts, share scripts with teammates, and a year later the script still works exactly the same. No interface element moved, no button got redesigned. The terminal isn't old-fashioned; it's the most stable user interface in computing.</p>
+</div>
+
+<h3>What about Mac, Windows, Linux?</h3>
+<table class="cmp">
+<tr><th>Your OS</th><th>How to open a terminal</th></tr>
+<tr><td>Mac</td><td>Spotlight (Cmd+Space), type "Terminal", press Enter</td></tr>
+<tr><td>Linux</td><td>Look for "Terminal" in your applications, or press Ctrl+Alt+T on many distros</td></tr>
+<tr><td>Windows</td><td>Use <a href="https://learn.microsoft.com/en-us/windows/wsl/install" target="_blank" rel="noopener">WSL (Windows Subsystem for Linux)</a>. Mac and Linux terminals work the same; Windows's built-in Command Prompt and PowerShell are different enough to be confusing for this curriculum.</td></tr>
+</table>
+<p>That's the whole primer. The next page covers git, and from there you can read every example in this curriculum.</p>
+</template>
+
+<template data-page-title="Git in 10 Minutes" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">Git in 10 Minutes</h2>
+<p class="lede">Git is the tool that lets engineers save snapshots of code as they work, see what changed between any two snapshots, and roll back to any earlier state. Every bisection example in this curriculum builds on git. You don't need to be an expert — you need three concepts (commits, branches, history) and four commands.</p>
+
+<h3>The mental model</h3>
+<p>Imagine you're writing a novel. Every time you finish a paragraph you're proud of, you save a copy of the whole document with today's date. That way if tomorrow you write something terrible, you can go back to yesterday's version.</p>
+<p>Git does this for code, automatically, perfectly. Every save (called a <strong>commit</strong>) records exactly what changed since the last save. Years of work become a chain of thousands of small saves you can browse, compare, and rewind.</p>
+
+<h3>The three concepts</h3>
+
+<h4>1. Commit (a saved snapshot)</h4>
+<p>A commit is one save point. It has:</p>
+<ul>
+  <li>An exact copy of every file at that moment.</li>
+  <li>A message describing what changed ("Fix login button color").</li>
+  <li>The author and timestamp.</li>
+  <li>A unique ID — a long string of letters and numbers like <code>a3f2c91</code>.</li>
+</ul>
+
+<h4>2. History (the chain of all commits)</h4>
+<p>Commits link to each other. The newest one points to the one before it, which points to the one before that, all the way back to the very first commit. This chain is the project's history.</p>
+
+<pre class="code" data-lang="text" data-title="git-history.txt">[newest]  d4e5f6  "Fix payment bug"
+              ↓
+          c3d4e5  "Add receipt email"
+              ↓
+          b2c3d4  "Update prices"
+              ↓
+          a1b2c3  "Initial commit"  [oldest]
+</pre>
+
+<p>This chain is exactly what bisection searches through.</p>
+
+<h4>3. Branch (a parallel line of commits)</h4>
+<p>Sometimes two engineers work on different features at the same time. Each works on their own "branch" — a side chain of commits — and merges back to the main branch when ready. For this curriculum's basics, you can mostly ignore branches and treat history as a single line.</p>
+
+<h3>The four commands you need</h3>
+
+<pre class="code" data-lang="shell" data-title="git-essentials.sh"># See where you are in the history.
+git log --oneline -5
+# → d4e5f6 Fix payment bug
+#   c3d4e5 Add receipt email
+#   b2c3d4 Update prices
+#   a1b2c3 Initial commit
+
+# Jump to a specific commit (read-only — to look around).
+git checkout c3d4e5
+# → "HEAD is now at c3d4e5 Add receipt email"
+# Now your files look exactly like they did at that commit.
+
+# Go back to the latest version (the "main" branch).
+git checkout main
+# → "Switched to branch 'main'"
+
+# See what changed in one specific commit.
+git show d4e5f6
+# → (prints the message and the exact lines added/removed)
+</pre>
+
+<h3>That's all you need for bisection</h3>
+<p>The curriculum's git bisect commands use the same four concepts: checkout, history, commits, messages. Once you're comfortable jumping between commits with <code>git checkout</code>, <code>git bisect</code> automates jumping in a binary-search pattern — and that's the whole tool.</p>
+
+<h3>The mistake that scares beginners</h3>
+<p>Beginners hear horror stories about git eating their work. In practice, this almost never happens — git keeps everything you've committed forever, even if you "delete" a branch. <strong>The only way to lose work in git is to lose work that was never committed.</strong></p>
+<p>The rule: <em>commit early and often</em>. Even commits with messages like "WIP" are worth saving. You can always reorganize them later; you can't recover work you never saved.</p>
+
+<div class="callout">
+<div class="callout-title">The principal-engineer angle</div>
+<p>Git history is documentation. A year from now, when you're trying to understand <em>why</em> some line of code exists, the only honest answer is in the commit that introduced it — its message, its diff, the PR that referenced it. Engineers who treat commits as "I'll squash these later" are throwing away their team's future memory. A clean, atomic, well-messaged git history is one of the highest-leverage artifacts any team produces. <strong>Bisection's superpower depends on history quality.</strong> A history of "WIP", "fix", "fix again", "actually fix it" makes bisection useless.</p>
+</div>
+
+<h3>Going deeper (later)</h3>
+<p>This page deliberately skips branches, merges, rebases, stashes, and remotes. Part II of the curriculum covers <code>git bisect</code> assuming nothing more than what you've just read. When you're ready to learn more, the official "<a href="https://git-scm.com/book/en/v2" target="_blank" rel="noopener">Pro Git</a>" book is free, excellent, and authoritative.</p>
+</template>
+
+<template data-page-title="How to Read the Code in This Curriculum" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">How to Read the Code in This Curriculum</h2>
+<p class="lede">Code looks intimidating until you realize it's just instructions, written in shorthand, in one of a few well-known dialects. This page walks through every kind of code block you'll see in the curriculum — bash scripts, JavaScript, JSON, YAML — and explains the patterns you need to skim them confidently. You won't be writing them, but you'll <em>read</em> them like an engineer.</p>
+
+<h3>The five dialects you'll meet</h3>
+<table class="cmp">
+<tr><th>Dialect</th><th>What it's for</th><th>How to recognize</th></tr>
+<tr><td><strong>Bash / shell</strong></td><td>Step-by-step instructions for the terminal</td><td>Lines start with commands like <code>ls</code>, <code>cd</code>, <code>git</code>, <code>echo</code></td></tr>
+<tr><td><strong>JavaScript (Node)</strong></td><td>"Real programs" that do calculations and logic</td><td><code>function</code>, <code>const</code>, <code>=&gt;</code>, curly braces <code>{}</code></td></tr>
+<tr><td><strong>JSON</strong></td><td>Structured data — settings and lists</td><td>Curly braces everywhere, <code>"keys"</code> and values</td></tr>
+<tr><td><strong>YAML</strong></td><td>Structured data, but more readable</td><td>Indented lines with <code>key:</code> at the start</td></tr>
+<tr><td><strong>Markdown</strong></td><td>Notes and documentation</td><td><code>#</code>, <code>-</code>, plain prose</td></tr>
+</table>
+
+<h3>Bash, the most common one here</h3>
+<p>Bash is what runs in a terminal. Bash scripts are files full of terminal commands, run top to bottom. The patterns to recognize:</p>
+
+<pre class="code" data-lang="shell" data-title="reading-bash.sh">#!/usr/bin/env bash
+# This first line says "run me with bash."
+# Lines starting with # are comments — notes for humans, ignored by the computer.
+
+# A "variable" stores a value with a name.
+NAME="Alice"
+
+# To use a variable, prefix it with $.
+echo "Hello, $NAME"
+# → Hello, Alice
+
+# A "loop" repeats something for each item in a list.
+for fruit in apple banana cherry; do
+  echo "I like $fruit"
+done
+# → I like apple
+# → I like banana
+# → I like cherry
+
+# An "if" runs code only when a condition is true.
+if [ "$NAME" = "Alice" ]; then
+  echo "Hi Alice!"
+fi
+</pre>
+
+<p>That's 80% of every bash script you'll see in this curriculum. The remaining 20% is fancier — but if you can recognize variables (<code>$NAME</code>), loops (<code>for ... do ... done</code>), and conditionals (<code>if ... then ... fi</code>), you can <em>skim</em> any bash script and follow the logic.</p>
+
+<h3>JavaScript</h3>
+<p>JavaScript looks more like math equations and English combined. The patterns:</p>
+
+<pre class="code" data-lang="javascript" data-title="reading-js.mjs">// Lines starting with // are comments.
+
+// Storing values:
+const name = "Alice";              // const = "won't change"
+let count = 0;                     // let = "will change"
+
+// A "function" is a named recipe.
+function greet(who) {              // takes one input (who)
+  return "Hello, " + who;          // outputs a string
+}
+console.log(greet("Alice"));       // → Hello, Alice
+
+// A "loop" works similarly to bash.
+for (const fruit of ["apple", "banana"]) {
+  console.log("I like " + fruit);
+}
+
+// An "if" works similarly.
+if (count === 0) {
+  console.log("Nothing yet.");
+}
+</pre>
+
+<p>You'll see curly braces <code>{}</code> a lot — they group lines into blocks. Semicolons end statements. The double-equals (<code>==</code>) and triple-equals (<code>===</code>) both mean "compare" — the triple version is the modern, stricter one.</p>
+
+<h3>JSON</h3>
+<p>JSON is structured data. Two shapes: objects (key-value pairs in curly braces) and arrays (lists in square brackets). That's it.</p>
+
+<pre class="code" data-lang="json" data-title="reading-json.json">{
+  "name": "Alice",
+  "age": 30,
+  "favorite-fruits": ["apple", "banana"],
+  "address": {
+    "city": "Lisbon",
+    "country": "Portugal"
+  }
+}
+</pre>
+
+<p>You'll see <code>package.json</code> a lot — it's a settings file for projects. <code>tsconfig.json</code> is a settings file for TypeScript projects. The format is always the same: keys in quotes, values can be numbers, strings, lists, or nested objects.</p>
+
+<h3>YAML</h3>
+<p>YAML is like JSON but without quotes and braces — easier on the eyes. Indentation does the grouping. You'll see this in CI files (<code>.github/workflows/*.yml</code>) and Kubernetes configs.</p>
+
+<pre class="code" data-lang="yaml" data-title="reading-yaml.yml">name: Alice
+age: 30
+favorite-fruits:
+  - apple
+  - banana
+address:
+  city: Lisbon
+  country: Portugal
+</pre>
+
+<p>Lines starting with <code>-</code> are list items. Lines indented under another line are nested inside it.</p>
+
+<h3>What you do <em>not</em> need to understand</h3>
+<p>You don't need to:</p>
+<ul>
+  <li>Memorize the syntax. Refer back to this page whenever something looks odd.</li>
+  <li>Understand every line of every code block. The curriculum's prose explains what each block does.</li>
+  <li>Write any of this from scratch. Reading and modifying is enough.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The L7 angle on code reading</div>
+<p>Senior engineers don't "read code" the way beginners do — line by line. They <em>skim for shapes</em>: "this is a loop, this is a variable assignment, this is a function call." The shape gives 80% of the meaning. Then they zoom into the 20% that matters for the question they're answering. You'll develop this skill faster than you expect. Just lean on the patterns above and keep going.</p>
+</div>
+</template>
+
+<template data-page-title="Binary Search, Visualized" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">Binary Search, Visualized</h2>
+<p class="lede">Bisection IS binary search applied to bugs. So before we talk about debugging, let's understand binary search itself — visually, no math, no code. By the end you'll see why it's almost magical.</p>
+
+<h3>The high-low game</h3>
+<p>You've played this. Someone picks a number between 1 and 100. You guess. They say "higher" or "lower." How few guesses do you need to always win, no matter what number they picked?</p>
+
+<p><strong>Bad strategy: guess 1, 2, 3, 4...</strong> Worst case: 100 guesses.</p>
+
+<p><strong>Smart strategy: always guess the middle.</strong></p>
+
+<pre class="code" data-lang="text" data-title="binary-search-game.txt">Round 1: Range is 1..100. Middle is 50. You guess 50.
+         "Higher." So the answer is between 51 and 100.
+
+Round 2: Range is 51..100. Middle is 75. You guess 75.
+         "Lower." So the answer is between 51 and 74.
+
+Round 3: Range is 51..74. Middle is 62. You guess 62.
+         "Higher." So the answer is between 63 and 74.
+
+Round 4: Range is 63..74. Middle is 68. You guess 68.
+         "Lower." So the answer is between 63 and 67.
+
+Round 5: Range is 63..67. Middle is 65. You guess 65.
+         "Higher." So the answer is between 66 and 67.
+
+Round 6: Range is 66..67. Middle is 66. You guess 66.
+         "Higher." Answer is 67.
+
+Round 7: You guess 67. ✓
+
+Total guesses: 7.
+</pre>
+
+<p>Seven guesses out of 100. <strong>That's binary search.</strong></p>
+
+<h3>What just happened</h3>
+<p>Each guess told you the answer was either in the lower half or the upper half. You <em>threw away half the possibilities</em> with every guess. After 7 rounds, you've cut 100 numbers down to 1.</p>
+
+<p>Let's draw it:</p>
+
+<pre class="code" data-lang="text" data-title="binary-search-shrinking.txt">Round 1:  [================================================] 100 numbers
+Round 2:  [========================]                          50 numbers
+Round 3:  [============]                                      25 numbers
+Round 4:  [======]                                            12 numbers
+Round 5:  [===]                                                6 numbers
+Round 6:  [=]                                                  3 numbers
+Round 7:  done                                                 1 number
+</pre>
+
+<p>That halving is the entire trick. The technical name for "how many times you can halve N before you reach 1" is <em>log base 2 of N</em>, written <code>log₂(N)</code>. For 100, log₂(100) is about 7. For 1,000 it's 10. For a million it's 20.</p>
+
+<h3>The numbers that will surprise you</h3>
+<table class="cmp">
+<tr><th>If you have this many suspects…</th><th>Linear search worst case</th><th>Binary search worst case</th></tr>
+<tr><td>10</td><td>10 guesses</td><td>4 guesses</td></tr>
+<tr><td>100</td><td>100</td><td>7</td></tr>
+<tr><td>1,000</td><td>1,000</td><td>10</td></tr>
+<tr><td>10,000</td><td>10,000</td><td>14</td></tr>
+<tr><td>100,000</td><td>100,000</td><td>17</td></tr>
+<tr><td>1,000,000</td><td>1,000,000</td><td>20</td></tr>
+<tr><td>1,000,000,000 (a billion)</td><td>a billion</td><td>30</td></tr>
+</table>
+
+<p>Read that last row again. <strong>A billion suspects can be narrowed to one with thirty yes/no questions.</strong> This is the most powerful idea in computer science applied to debugging. The bigger the problem, the more impressive bisection becomes.</p>
+
+<h3>The two rules you must follow</h3>
+<p>Binary search only works when:</p>
+<ol>
+  <li><strong>The list is ordered.</strong> "Higher" and "lower" must make sense. For numbers, that's obvious. For bugs, "before this commit it worked, after this commit it broke" is the same idea — the list of commits is ordered by time.</li>
+  <li><strong>The order doesn't switch.</strong> If the answer is "yes" before some point and "no" after, and never switches back, you're good. If it switches back and forth, binary search misleads you. (This is the "monotonicity invariant" you'll meet in Part I.)</li>
+</ol>
+
+<h3>Why this matters for debugging</h3>
+<p>Think of every commit in a project's history as a number from 1 to N. The "should we go higher or lower?" question becomes "is this commit's code working or broken?" Once you answer that for the middle commit, you've thrown away half of history.</p>
+
+<p>With ten yes/no answers, you've narrowed a thousand commits to one. <strong>That one commit is your bug.</strong> This is the entire premise of Part I onwards.</p>
+
+<div class="callout good">
+<div class="callout-title">The principal-engineer angle</div>
+<p>Binary search isn't just a debugging trick — it's a mental discipline you'll apply to every search problem for the rest of your career. Looking for a corrupted record in a database log? Bisect. Looking for a leaky resource in a service? Bisect by routing rules. Looking for the date a config changed? Bisect across snapshots. Whenever someone says "we have to check 10,000 of these," your reaction should be: <em>can I cut that to 14 with bisection?</em> Usually yes.</p>
+</div>
+</template>
+
+<template data-page-title="The Scientific Method for Debugging" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">The Scientific Method for Debugging</h2>
+<p class="lede">Debugging is a science. Not a metaphor for science — actual science. You observe, you form a hypothesis, you design an experiment, you check the result. Engineers who do this well find bugs in minutes; engineers who don't can spend days "trying things." The difference is method, not talent. This page teaches the method.</p>
+
+<h3>The five steps</h3>
+<ol>
+  <li><strong>Observe.</strong> What exactly is happening? Get the actual error, the actual numbers, the actual symptoms. Don't paraphrase. Don't guess.</li>
+  <li><strong>Hypothesize.</strong> What's the simplest explanation that fits the observation? Make it specific. "Something's wrong with the database" is not a hypothesis. "The user record for ID 4827 is missing the email field" is a hypothesis.</li>
+  <li><strong>Predict.</strong> If the hypothesis is true, what should you see when you do <em>X</em>? Be specific: "if I query the user record, the email column will be empty."</li>
+  <li><strong>Test.</strong> Do the experiment. Carefully, with as few variables changing as possible.</li>
+  <li><strong>Conclude.</strong> Either the result matches the prediction (hypothesis stands; you've learned something) or it doesn't (hypothesis is wrong; back to step 2 with new information).</li>
+</ol>
+
+<h3>Walk-through: a real bug</h3>
+<p>Bug report: "The login button doesn't work for some users."</p>
+
+<table class="cmp">
+<tr><th>Step</th><th>What you do</th></tr>
+<tr><td>Observe</td><td>Watch a user log in. The button is clicked. The page reloads. They see "Email not verified" — but they verified their email yesterday. So: it's not that login doesn't work, it's that the system thinks they're unverified.</td></tr>
+<tr><td>Hypothesis</td><td>The verification flag isn't being saved when users click the verification link.</td></tr>
+<tr><td>Prediction</td><td>If I look up this user in the database, the <code>email_verified</code> field will be false even though they clicked the link.</td></tr>
+<tr><td>Test</td><td>Query the database for this user. Look at the field.</td></tr>
+<tr><td>Conclude (case A)</td><td>The field is false. Hypothesis confirmed. Next question: <em>why</em> isn't it being saved? New hypothesis loop.</td></tr>
+<tr><td>Conclude (case B)</td><td>The field is true! Hypothesis wrong. The bug is elsewhere — maybe the login code is reading the wrong field. Form a new hypothesis.</td></tr>
+</table>
+
+<p>Notice what didn't happen: nobody said "let me just try restarting the server." Nobody re-read the login code hoping to spot something. Every step had a specific question and a specific way to answer it.</p>
+
+<h3>The "what did you try?" trap</h3>
+<p>Junior engineers describe debugging as "I tried this, then I tried that, then I tried something else." Each "try" is an unstructured experiment. Senior engineers describe debugging as "my hypothesis was X; the result was Y; so I refined to hypothesis Z." Each step builds on the last. The first style can run for days. The second usually finishes in an hour.</p>
+
+<h3>Bisection IS the scientific method applied at scale</h3>
+<p>This is the key insight that ties this page back to the rest of the curriculum:</p>
+<ul>
+  <li><strong>Hypothesis:</strong> "The bug is somewhere in the first half of these commits."</li>
+  <li><strong>Prediction:</strong> "If I check out the middle commit and run the predicate, it will fail."</li>
+  <li><strong>Test:</strong> Check out the middle commit. Run the predicate.</li>
+  <li><strong>Conclude:</strong> If it fails, the bug is in the first half. If it passes, the second half.</li>
+</ul>
+<p>That's one round of bisection. Every round is one scientific experiment. Running ten rounds is running ten experiments in twenty minutes — far faster than any human can think their way through a bug. <strong>Bisection turns intuition into method.</strong></p>
+
+<h3>The discipline most engineers skip</h3>
+<p>The discipline isn't the steps themselves — they're obvious. It's <em>writing them down</em>. Keep a notebook or text file open while debugging. Write the hypothesis. Write the prediction. Write the result. Three lines per round. After ten rounds, you have a record of exactly what you've ruled out and what you've confirmed. This prevents:</p>
+<ul>
+  <li>Forgetting what you already tested ("did I check that case?")</li>
+  <li>Running the same test twice</li>
+  <li>Sharing nothing useful with the next engineer who picks up the bug</li>
+  <li>Believing your own incorrect memory of "I'm pretty sure I checked that"</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The L7 angle</div>
+<p>Distinguished engineers don't debug faster because they're smarter. They debug faster because their hypotheses are sharper and their tests rule out more possibilities per experiment. This is a learnable skill. The fastest way to develop it: when you've finished debugging a bug, look back at your notebook. Which hypothesis was right? At which step did you finally know? Could you have skipped earlier guesses? Over months, this retrospective sharpens your instincts. Bisection is one specific way to apply the method — the most powerful one when the search space is large.</p>
+</div>
+</template>
+
+<template data-page-title="Reading Error Messages and Stack Traces" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">Reading Error Messages and Stack Traces</h2>
+<p class="lede">When code breaks, it usually prints something. Beginners glance at the error, get scared, and copy-paste it into Google. Senior engineers read it carefully — and the error tells them almost exactly what's wrong, line and all. This page teaches how to read error messages and stack traces the way an engineer does.</p>
+
+<h3>An error message is a written report from the computer</h3>
+<p>When a program crashes, it tries to tell you:</p>
+<ol>
+  <li>What kind of problem it ran into ("file not found", "division by zero", "permission denied").</li>
+  <li>Where exactly it was when the problem happened (which file, which line).</li>
+  <li>How it got there (which function called which function called which function).</li>
+</ol>
+<p>That third part — the "how it got here" — is called a <strong>stack trace</strong>. It's the most useful part. Reading it backward usually points straight at the bug.</p>
+
+<h3>An example, line by line</h3>
+
+<pre class="code" data-lang="text" data-title="example-stack-trace.txt">TypeError: Cannot read properties of undefined (reading 'email')
+    at sendWelcomeEmail (/app/src/email.js:42:18)
+    at registerUser (/app/src/users.js:127:5)
+    at handleSignup (/app/src/routes/signup.js:34:11)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+</pre>
+
+<p>Let's decode it:</p>
+
+<table class="cmp">
+<tr><th>Line</th><th>What it says</th><th>What it means in plain English</th></tr>
+<tr><td>1</td><td><code>TypeError: Cannot read properties of undefined (reading 'email')</code></td><td>"I tried to look up the 'email' field on something, but that something didn't exist."</td></tr>
+<tr><td>2</td><td><code>at sendWelcomeEmail (/app/src/email.js:42:18)</code></td><td>"I was in the function called <code>sendWelcomeEmail</code>, in the file <code>email.js</code>, on line 42, character 18, when it broke."</td></tr>
+<tr><td>3</td><td><code>at registerUser (/app/src/users.js:127:5)</code></td><td>"<code>sendWelcomeEmail</code> was called from <code>registerUser</code> in users.js line 127."</td></tr>
+<tr><td>4</td><td><code>at handleSignup (/app/src/routes/signup.js:34:11)</code></td><td>"…which was called from <code>handleSignup</code> in signup.js line 34."</td></tr>
+<tr><td>5</td><td>"at Layer.handle…"</td><td>"…and that was inside Express, the web framework. This part isn't your code — you can ignore it."</td></tr>
+</table>
+
+<p>The stack trace reads "newest at the top, oldest at the bottom." So you read top-down to learn <em>what broke last</em>, and bottom-up to understand <em>how the program got there</em>.</p>
+
+<h3>Where to focus first</h3>
+<p>Almost always: <strong>the top line that points to YOUR code, not framework code</strong>. In the example above, that's line 2: <code>sendWelcomeEmail at email.js:42</code>. Go open that file, look at line 42. Whatever it tries to access an <code>email</code> field on, that thing was probably <code>undefined</code>.</p>
+
+<h3>The three error patterns you'll see most</h3>
+
+<h4>1. "Cannot read properties of undefined" (JavaScript) / "AttributeError: 'NoneType' object has no attribute" (Python)</h4>
+<p>You tried to use something that doesn't exist. Almost always: a variable that should have been set wasn't. Go look at where it gets set — there's a conditional that didn't fire, or a fetch that returned nothing.</p>
+
+<h4>2. "Permission denied"</h4>
+<p>The operating system refused to let your program do something — open a file, run a command, talk to a network port. Usually a config issue, not a code bug. But if it appears only after a deploy, something in the deploy changed file permissions.</p>
+
+<h4>3. "Timeout" / "Connection refused" / "ECONNREFUSED"</h4>
+<p>Your program tried to talk to another program (a database, an API, another service) and the conversation didn't happen. The other program is down, slow, or moved.</p>
+
+<h3>What error messages do NOT tell you</h3>
+<p>They tell you <em>where</em> things broke, not <em>why</em>. The file and line are the symptom; the cause is usually somewhere else. <code>email.js:42</code> says the email field wasn't there — but the actual bug is wherever the user object was supposed to get its email field, which might be a different file entirely.</p>
+<p>This is where bisection helps. If the file at line 42 has been the same for months, the bug isn't in line 42 — it's in something <em>else</em> that changed recently. Bisecting the recent commits finds what changed.</p>
+
+<h3>Reading logs (which are like piles of error messages)</h3>
+<p>A log is a chronological list of things a program reported as it ran. Every line has a timestamp, a severity level (INFO, WARN, ERROR), and a message. To find a bug in a log:</p>
+<ul>
+  <li>Search for <code>ERROR</code> first. Most of the time the cause is the first ERROR before everything broke.</li>
+  <li>Look at what happened just before. Often a <code>WARN</code> or an <code>INFO</code> line tells you why the error came next.</li>
+  <li>Note the timestamp. Correlate with when the user reported the problem.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The L7 angle</div>
+<p>Error messages and stack traces are <em>conversations</em>. The computer is telling you, in a slightly stiff voice, exactly what it tried to do and where it failed. Engineers who read them well save hours per week. The discipline is: <strong>never close a stack trace until you've understood it.</strong> If you can't, ask out loud: "what's this line of code trying to access? What did it expect to be there?" Write the answer down. By the time you've written one sentence, you'll often realize the answer.</p>
+</div>
+</template>
+
+<template data-page-title="Writing a Minimal Reproduction" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">Writing a Minimal Reproduction (Repro)</h2>
+<p class="lede">A "minimal reproduction" — repro for short — is the smallest, simplest, most consistent way to make a bug happen. Most debugging time is spent trying to reproduce bugs, not fix them. Engineers who can produce a clean repro fix bugs ten times faster than those who can't. This page teaches what a repro is and how to write one.</p>
+
+<h3>The repro pyramid</h3>
+<p>Bug reports come in five levels of repro quality. Each level up makes the bug roughly twice as fast to fix:</p>
+
+<table class="cmp">
+<tr><th>Level</th><th>What it looks like</th><th>What it costs the engineer</th></tr>
+<tr><td>Level 0</td><td>"Something's broken."</td><td>Hours of guessing what to investigate.</td></tr>
+<tr><td>Level 1</td><td>"The login page doesn't work for some users."</td><td>Still guessing — which users? When?</td></tr>
+<tr><td>Level 2</td><td>"User alice@x.com can't log in since yesterday."</td><td>Now there's something to look at, but no recipe to reproduce.</td></tr>
+<tr><td>Level 3</td><td>"Steps: open /login, type alice@x.com + correct password, click Login. Expected: dashboard. Actual: 'Email not verified' page."</td><td>The engineer can try it themselves.</td></tr>
+<tr><td>Level 4 (minimal)</td><td>A self-contained test case (a script, a snippet, a project) that triggers the bug on a fresh machine in seconds.</td><td>Bug becomes a 30-minute fix.</td></tr>
+</table>
+
+<p>Level 4 is the goal. It's called "minimal" because everything that isn't necessary to trigger the bug has been removed.</p>
+
+<h3>How to shrink a bug to its minimum</h3>
+<p>You're given a 50,000-line web app that crashes when a specific user tries to check out. The crash involves their cart, their payment method, and an analytics call. Where do you start to shrink the repro?</p>
+
+<ol>
+  <li><strong>Confirm the bug reproduces at all.</strong> Run the full setup. Crash? Good. Doesn't crash? Stop — the bug isn't here. (You'd be amazed how often this is the actual answer.)</li>
+  <li><strong>Remove things one at a time.</strong> Take out the analytics call. Crash still happens? Remove it permanently. Take out the discount code. Still crashes? Remove. Take out the second item in the cart. Still crashes? Remove.</li>
+  <li><strong>Keep going until removing anything makes the crash disappear.</strong> That's your minimum.</li>
+</ol>
+
+<p>At the end, you might have a repro like: "user with one specific item in cart + the 'apply gift card' field, on the checkout page." Twelve lines of input, instead of a whole signed-up session.</p>
+
+<h3>Why this is bisection in disguise</h3>
+<p>Sound familiar? <strong>Shrinking a repro IS bisection.</strong> Each round you cut things in half — if it still crashes, the cause is in the half you kept. If it stops crashing, the cause is in the half you removed. The technique is so universal it has a formal name: <em>delta debugging</em>, covered in Part IX.</p>
+
+<h3>The four tests of a good repro</h3>
+<ol>
+  <li><strong>Reproducible.</strong> Anyone running the same steps gets the same result, every time. If it only fails sometimes, write down how often (1 in 10? 1 in 1000?). That number is itself a clue.</li>
+  <li><strong>Minimal.</strong> Nothing extraneous. If you can take something out and the bug still happens, take it out.</li>
+  <li><strong>Self-contained.</strong> A fresh engineer should be able to set it up in under five minutes. Include exact commands, exact data, exact versions.</li>
+  <li><strong>Specific.</strong> Says exactly what you expected vs. what you got. "Doesn't work" is useless. "Returns 500 instead of 200, body says 'CSRF token missing'" is gold.</li>
+</ol>
+
+<h3>The "but it works on my machine" trap</h3>
+<p>The single most expensive sentence in software engineering. When you can't reproduce a bug locally but it happens in production, the bug isn't impossible — your machine just isn't reproducing the conditions. The conditions usually are:</p>
+<ul>
+  <li>A specific data shape only present in production.</li>
+  <li>A specific timing or concurrency pattern.</li>
+  <li>A specific dependency version mismatch.</li>
+  <li>A specific OS or environment setting.</li>
+</ul>
+<p>The repro work then becomes: <strong>find which of those conditions is the actual trigger.</strong> Often the answer surprises you — and finding it is the bug fix itself.</p>
+
+<div class="callout good">
+<div class="callout-title">The L7 angle</div>
+<p>The discipline of writing minimal repros pays compounding interest. Every repro is a permanent artifact: it becomes a test in your test suite (preventing the regression forever), a paragraph in the postmortem (teaching the team), and sometimes a paper in a conference (if the bug was deep enough). Engineers who consistently produce good repros end up with the best bug-fix track records — not because they're better debuggers, but because they've reduced every bug to its irreducible core before debugging starts.</p>
+</div>
+</template>
+
+<template data-page-title="The Debugging Tool Hierarchy" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">The Debugging Tool Hierarchy</h2>
+<p class="lede">There are five families of debugging tools. Each one is the right answer for a specific kind of question. Beginners reach for the same one for every problem; senior engineers know which to grab when. This page introduces all five so you can recognize them in the rest of the curriculum and beyond.</p>
+
+<h3>The five families</h3>
+
+<table class="cmp">
+<tr><th>Family</th><th>Answers the question</th><th>Cost to use</th></tr>
+<tr><td>1. Print statements / logging</td><td>"What value did this variable have when we got here?"</td><td>Free, slow to set up new ones</td></tr>
+<tr><td>2. Interactive debuggers (gdb, Chrome DevTools, etc.)</td><td>"What's the program's state RIGHT NOW? Can I step through it line by line?"</td><td>Steep learning curve, then very fast</td></tr>
+<tr><td>3. Profilers</td><td>"Where is this program spending its time / memory?"</td><td>Cheap to run, harder to interpret</td></tr>
+<tr><td>4. Tracers (strace, eBPF, OpenTelemetry)</td><td>"What is the program doing at the OS / network / inter-service level?"</td><td>Free, moderately readable</td></tr>
+<tr><td>5. Bisection</td><td>"WHICH CHANGE caused this?"</td><td>Setup time, then automatic — the topic of this whole curriculum</td></tr>
+</table>
+
+<h3>1. Print debugging (the universal first tool)</h3>
+<p>Adding a line that prints out a variable. "What value is this thing right now?" — answered. It's the oldest debugging technique and still the most popular among all engineers.</p>
+
+<p><strong>When it's right:</strong> Quick investigation. You have one specific question. The bug is somewhere narrow.</p>
+<p><strong>When it's wrong:</strong> The bug is in production, where you can't add prints. Or the bug is rare and you'd have to add prints in 100 places to catch it.</p>
+
+<pre class="code" data-lang="javascript" data-title="print-debug-example.mjs">function processOrder(order) {
+  console.log("DEBUG: order is", JSON.stringify(order));   // ← added for debugging
+  const total = order.items.reduce((sum, item) =&gt; sum + item.price, 0);
+  console.log("DEBUG: total computed as", total);          // ← added for debugging
+  return chargeCard(order.userId, total);
+}
+</pre>
+
+<h3>2. Interactive debuggers</h3>
+<p>A program-within-a-program that pauses your code at any line and lets you inspect every variable, step forward one line at a time, and watch values change. Chrome DevTools is the one you've probably already seen (Right-click → Inspect → Sources tab in a browser). Node has <code>node --inspect</code>. C/C++ has <code>gdb</code>. Python has <code>pdb</code>.</p>
+
+<p><strong>When it's right:</strong> The bug is reproducible locally and you want to crawl through the code's behavior step by step. Complex logic where prints would be too many.</p>
+<p><strong>When it's wrong:</strong> The bug only appears at high concurrency, only in production, or the steps to set it up are too elaborate to attach a debugger.</p>
+
+<h3>3. Profilers</h3>
+<p>Tools that watch your program run and report "this function ran 1.4 million times" or "this code path used 800MB of memory." For performance bugs, profilers are the right answer almost always.</p>
+
+<p><strong>When it's right:</strong> The bug is "it's slow" or "it uses too much memory." You need to know where time/memory is going.</p>
+<p><strong>When it's wrong:</strong> Correctness bugs. A profiler tells you where the program spends time, not whether it's spending it correctly.</p>
+
+<p>Examples: Chrome DevTools' Performance tab, Node's <code>--prof</code> + <code>clinic</code>, Java's <code>jfr</code> (Flight Recorder), Linux's <code>perf</code>.</p>
+
+<h3>4. Tracers</h3>
+<p>Tools that watch your program's <em>boundary interactions</em> — every system call, every network packet, every file open. <code>strace</code> is the classic Linux tool. OpenTelemetry tracing follows a single user's request across many services in a distributed system.</p>
+
+<p><strong>When it's right:</strong> "Why is my program slow?" when you suspect the OS, the network, or another service. Mysterious silent hangs. Bugs at the boundary between systems.</p>
+<p><strong>When it's wrong:</strong> Pure-logic bugs inside your own code.</p>
+
+<p>OpenTelemetry-style distributed tracing is now table stakes for any multi-service application. Part IX's "Distributed Trace Bisection" page builds on this.</p>
+
+<h3>5. Bisection (this curriculum)</h3>
+<p>When the question is "<em>which change</em> caused this?", bisection is the only efficient answer. Every other tool tells you about the current state of the program; bisection tells you about the <em>history</em> of the program.</p>
+
+<p><strong>When it's right:</strong> The code used to work; now it doesn't. The version that worked is somewhere in history; the version that didn't is more recent. The space is large.</p>
+<p><strong>When it's wrong:</strong> The bug has always existed. The history is too short to be worth bisecting (e.g., 5 commits). The predicate is too expensive to run dozens of times.</p>
+
+<h3>The decision tree</h3>
+
+<pre class="code" data-lang="text" data-title="which-tool.txt">Symptom: "the value is wrong"
+  → Did this used to work?
+       yes →  BISECT to find the change that broke it
+       no  →  PRINT DEBUG or use a DEBUGGER to inspect current state
+
+Symptom: "it's slow"
+  → Did this used to be fast?
+       yes →  BISECT against a perf-budget predicate (Part V)
+       no  →  PROFILE to find the hotspot
+
+Symptom: "it crashes sometimes"
+  → Can you reproduce it locally?
+       yes →  DEBUGGER + add breakpoints
+       no  →  TRACER (strace, OTel) to capture the failing run
+
+Symptom: "memory keeps growing forever"
+  → Did this used to be stable?
+       yes →  BISECT against a memory-budget predicate
+       no  →  PROFILE the heap (clinic, heaptrack, etc.)
+
+Symptom: "it makes the wrong HTTP call to another service"
+  → TRACE the network boundary (OTel, tcpdump, mitmproxy)
+</pre>
+
+<h3>The L7 insight: they compose</h3>
+<p>A senior engineer rarely uses just one. A typical flow:</p>
+<ol>
+  <li>"Memory's growing" → <strong>profile</strong> to find which object accumulates (Part V's heap-snapshot diffing).</li>
+  <li>"What allocated those objects?" → <strong>print debug</strong> the allocation site to confirm hypothesis.</li>
+  <li>"Did this code used to behave differently?" → <strong>bisect</strong> to find the commit that started accumulating.</li>
+  <li>"Why does that commit cause this?" → <strong>debugger</strong> + breakpoints on the suspect line.</li>
+</ol>
+<p>Four tools, one bug. Each used for what it does best. <strong>This is what fluency looks like.</strong></p>
+
+<div class="callout good">
+<div class="callout-title">The principal-engineer angle</div>
+<p>If you only ever learn one tool, learn bisection — it answers questions other tools can't. But the goal of senior engineering isn't to make every problem a nail for your hammer. It's to develop opinionated taste about which tool is right for each shape of bug. After a year of deliberate practice, you'll find yourself reaching for the right tool unconsciously. After ten years, you'll be the engineer everyone asks: "what tool would you use here?"</p>
+</div>
+</template>
+
+<template data-page-title="Rubber Duck and Pair Debugging" data-part="0 — Before You Start">
+<span class="badge">Part 0 · Before You Start</span>
+<h2 class="page-title">Rubber Duck Debugging and Pair Debugging</h2>
+<p class="lede">Two of the most powerful debugging techniques don't use any tools. The first is talking out loud to an inanimate object. The second is talking it through with another human. Both work for the same reason — and understanding why is itself a senior-engineer skill.</p>
+
+<h3>The rubber duck</h3>
+<p>The technique: when you're stuck on a bug, put a rubber duck on your desk (or anything else — a printout, a coffee cup, a houseplant) and explain the problem to it out loud, line by line.</p>
+
+<p>"OK, duck. So I have this function. It takes a user object. It looks up the user's email — wait. Why am I assuming the user object has an email field at this point? Oh. That's the bug."</p>
+
+<p>You just solved it. The duck did nothing.</p>
+
+<h3>Why it works</h3>
+<p>When you read code silently to yourself, your brain skips familiar patterns — including the buggy one. When you have to explain it word by word, you're forced to actually look at each part. Your brain notices what your eyes have been gliding over.</p>
+
+<p>It also forces you to articulate assumptions. "This function gets a user" — true? "...with an email field" — true? Every time you say "and then it does X" out loud, your brain checks "wait, does it really?"</p>
+
+<h3>When the duck won't work</h3>
+<p>If you don't actually explain, just stare at the code while holding the duck, it won't help. You have to talk. Out loud is best; whispering counts; muttering under your breath in a coffee shop counts. The act of producing words is what does the work.</p>
+
+<h3>Pair debugging</h3>
+<p>Same idea, but with a person. Two engineers, one bug, one screen. Take turns "driving" (typing) and "navigating" (watching, thinking, asking).</p>
+
+<h4>Why two engineers are more than twice as good as one</h4>
+<ul>
+  <li><strong>One engineer has tunnel vision.</strong> The other notices things you've stopped seeing.</li>
+  <li><strong>One engineer skips explanations.</strong> The other forces you to articulate — and your articulation reveals the bug, rubber-duck style.</li>
+  <li><strong>One engineer makes assumptions.</strong> The other asks "wait, why?" at exactly the right time.</li>
+  <li><strong>One engineer gets tired and frustrated.</strong> The other resets the rhythm.</li>
+</ul>
+
+<h3>How to pair debug well</h3>
+<table class="cmp">
+<tr><th>Do</th><th>Don't</th></tr>
+<tr><td>Share one screen, one keyboard, one document of notes.</td><td>Have one person type and the other check their phone.</td></tr>
+<tr><td>Explain what you're doing as you do it. "I'm checking the value of <code>orders</code> now."</td><td>Silently type. The other person learns nothing.</td></tr>
+<tr><td>Ask "what's the next thing to test?" before testing it.</td><td>Just dive in and hope.</td></tr>
+<tr><td>Take breaks every 45–60 minutes.</td><td>Power through. Frustration breeds bad bisections.</td></tr>
+<tr><td>Switch driver/navigator every 20 minutes.</td><td>Let one person dominate. The other disengages.</td></tr>
+</table>
+
+<h3>When pair debugging is the right answer</h3>
+<ul>
+  <li>The bug is mysterious and you've been stuck for over an hour.</li>
+  <li>The system is unfamiliar to you (the other engineer knows it).</li>
+  <li>The fix has high blast radius and you want a second opinion.</li>
+  <li>You're mentoring a junior engineer and the bug is good practice.</li>
+  <li>You'll need to write a postmortem and want two memories of the investigation.</li>
+</ul>
+
+<h3>The senior-engineer move: <em>ask for the pair</em></h3>
+<p>Junior engineers are afraid that asking for help signals weakness. Senior engineers know the opposite: asking after 30 minutes of being stuck signals discipline. The waste isn't in asking — it's in spending three more hours stuck before someone finds out. <strong>"I've been stuck on this for 30 minutes; can you pair with me for 20?"</strong> is one of the most professional sentences in software.</p>
+
+<div class="callout good">
+<div class="callout-title">The L7 angle</div>
+<p>Distinguished engineers don't only pair-debug as a tactic; they cultivate a team culture where pairing is normal. They name the practice ("let's pair on this"), book time for it on calendars, and treat it as the most efficient use of two senior heads, not an admission of difficulty. The team that pair-debugs naturally is the team whose bugs get found fastest — because the practice is also <em>training</em>. Every pair session transfers knowledge between engineers. After a year, every senior engineer has a working mental model of every part of the system.</p>
+</div>
+</template>
+
 <template data-page-title="What Is Bisection Debugging?" data-part="I — Foundations">
 <span class="badge">Part I · Foundations</span>
 <h2 class="page-title">What Is Bisection Debugging?</h2>
@@ -5138,7 +5889,1277 @@ pnpm dev     # serves at http://localhost:8080
 <p>Bisection is not really about commits or files. It's about <em>turning ignorance into information at log-rate</em>. Once you internalize that view, you stop thinking "I'll use bisection here" and start asking, of every search problem, "what's my predicate, what's my candidate set, and is the invariant monotonic?" The technique disappears into the way you think.</p>
 <p>If you take one habit from this curriculum: <strong>before debugging, always ask "is this a search problem?" If yes, bisect. If no, think about why not.</strong></p>
 </div>
-<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something.</p>
+</template>
+
+<template data-page-title="Bisecting Kubernetes Deployments" data-part="X — Modern Systems">
+<span class="badge">Part X · Modern Systems</span>
+<h2 class="page-title">Bisecting Kubernetes Manifests and Deployments</h2>
+<p class="lede">Your service was healthy yesterday and is crashing today. The code didn't change — but ten YAML files did. Bisection over Kubernetes manifests narrows the offending change in log₂(N) deploys instead of N. The technique works for any declarative-config system but Kubernetes is the most common case.</p>
+
+<h3>The setup</h3>
+<p>Modern services are deployed by applying a folder of YAML files to a Kubernetes cluster. Engineers edit these YAMLs in pull requests; over time a service accumulates hundreds of changes to deployments, services, configmaps, and ingress. A recent edit broke pod startup, but the PR was big and touched several files.</p>
+
+<h3>The predicate</h3>
+
+<pre class="code" data-lang="shell" data-title="k8s-bisect-predicate.sh">#!/usr/bin/env bash
+# k8s-bisect-predicate.sh
+# Apply the current commit's manifests to a disposable namespace and check
+# whether the deployment becomes ready within a deadline.
+#
+# Exit codes follow `git bisect run`: 0 = good, 1 = bad, 125 = skip.
+set -uo pipefail
+
+NS="bisect-$(git rev-parse --short HEAD)"
+TIMEOUT="${TIMEOUT:-180s}"
+
+cleanup() { kubectl delete namespace "$NS" --wait=false 2&gt;/dev/null || true; }
+trap cleanup EXIT
+
+kubectl create namespace "$NS"             || exit 125  # cluster issue, not the bug
+
+# Apply the whole manifest folder for THIS commit.
+kubectl -n "$NS" apply -f ./k8s/            || exit 1
+
+# Wait for every Deployment in this namespace to become Available.
+kubectl -n "$NS" wait --for=condition=Available \
+        --timeout="$TIMEOUT" deployment --all
+RC=$?
+
+# Optional functional check: hit a smoke endpoint inside the pod.
+if [ $RC -eq 0 ]; then
+  kubectl -n "$NS" exec deploy/api -- curl -sf http://localhost:8080/healthz \
+    || RC=1
+fi
+
+exit $RC
+</pre>
+
+<h3>Running the bisection</h3>
+
+<pre class="code" data-lang="shell" data-title="k8s-bisect-run.sh">#!/usr/bin/env bash
+# Find the commit that broke the deployment.
+LAST_GOOD="${1:?usage: $0 &lt;last-known-good-sha&gt;}"
+
+git bisect start HEAD "$LAST_GOOD" -- k8s/    # restrict bisection to k8s/
+chmod +x k8s-bisect-predicate.sh
+git bisect run ./k8s-bisect-predicate.sh
+git bisect reset
+</pre>
+
+<p>Note <code>-- k8s/</code>: this limits bisection to commits that touched the manifest folder. If the bug is in YAML, code-only commits get skipped automatically — saving rounds.</p>
+
+<h3>The four most common Kubernetes regressions and what they look like</h3>
+<table class="cmp">
+<tr><th>Symptom in <code>kubectl describe pod</code></th><th>Almost-always-the-cause</th></tr>
+<tr><td><code>ImagePullBackOff</code></td><td>Image tag was edited to one that doesn't exist (typo or premature reference to an unbuilt image).</td></tr>
+<tr><td><code>CrashLoopBackOff</code> with healthy logs</td><td>readinessProbe or livenessProbe timing changed; pod is killed before it finishes startup.</td></tr>
+<tr><td><code>0/3 nodes are available: insufficient memory</code></td><td>resources.requests was bumped beyond cluster capacity.</td></tr>
+<tr><td>Pod starts but service has 0 endpoints</td><td>Label selector mismatch — someone renamed a label in <code>Deployment</code> but not in <code>Service</code>.</td></tr>
+</table>
+
+<h3>Working at the namespace level</h3>
+<p>The predicate above creates a fresh namespace per commit — clean isolation, no leftover state. The cost: cluster pressure. For large manifests (50+ resources), consider:</p>
+<ul>
+  <li>Using a dedicated bisection cluster (kind, minikube, k3d) rather than your dev or staging cluster.</li>
+  <li>Setting <code>--timeout</code> aggressively (60s instead of 180s) — most legitimately broken manifests fail fast.</li>
+  <li>Using <code>kubectl diff</code> at the suspect commit to <em>see</em> the change before letting kubectl apply it — sometimes the diff is so obvious you skip the bisection.</li>
+</ul>
+
+<h3>Helm and Kustomize</h3>
+<p>Same technique, different render step:</p>
+
+<pre class="code" data-lang="shell" data-title="helm-bisect-predicate.sh">#!/usr/bin/env bash
+# For Helm-rendered manifests, materialize the chart first, then apply.
+set -uo pipefail
+helm template ./charts/api --values ./values.yaml | kubectl -n "$NS" apply -f - \
+  || exit 1
+# ... same wait/check as before ...
+</pre>
+
+<pre class="code" data-lang="shell" data-title="kustomize-bisect-predicate.sh">#!/usr/bin/env bash
+# For Kustomize, render with `kubectl kustomize` (or kustomize build).
+set -uo pipefail
+kubectl -n "$NS" apply -k ./overlays/staging || exit 1
+# ... same wait/check ...
+</pre>
+
+<h3>GitOps (Flux / ArgoCD)</h3>
+<p>When your cluster is managed by GitOps, you don't run <code>kubectl apply</code> — the cluster pulls from git automatically. To bisect:</p>
+<ol>
+  <li>Create a temporary branch (e.g., <code>bisect-test</code>) that the GitOps controller is NOT watching.</li>
+  <li>For each candidate commit, force-push that commit to <code>bisect-test</code> on a separate cluster (or namespace) and observe.</li>
+  <li>Once the culprit is found, the real fix goes through normal PR flow.</li>
+</ol>
+
+<div class="callout">
+<div class="callout-title">L7 mindset</div>
+<p>A team that needs Kubernetes bisection often has a deeper problem: PRs that change too many manifests at once. The senior move isn't just to bisect faster — it's to <em>change the PR culture</em> so every manifest change is its own atomic, reviewable commit. Then bisection becomes trivial because each commit is one logical change. Tooling and culture work together; one without the other is half the win.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Infrastructure-as-Code" data-part="X — Modern Systems">
+<span class="badge">Part X · Modern Systems</span>
+<h2 class="page-title">Bisecting Terraform &amp; Infrastructure-as-Code</h2>
+<p class="lede">Your AWS bill jumped 40% last month. Or a load balancer started dropping connections after a deploy. Or an S3 bucket suddenly went public. The cause is somewhere in your Terraform history — and Terraform has hundreds of commits. Bisection across IaC commits finds the offending change in log₂(N) plans instead of staring at a year of diffs.</p>
+
+<h3>The unique challenge of IaC bisection</h3>
+<p>Code commits roll forward and backward freely. Infrastructure changes don't:</p>
+<ul>
+  <li>Some Terraform changes are <em>destructive</em> — applying an old commit might delete and recreate a database.</li>
+  <li>Some IaC providers are <em>stateful</em> — a security-group rule that was deleted in commit 7 can't be re-added by checking out commit 4 unless you understand the dependency order.</li>
+  <li>The <em>plan</em> (what Terraform would do) is usually safer to bisect than the <em>apply</em> (what it actually does).</li>
+</ul>
+<p>The principle: <strong>bisect plans, not applies, whenever possible.</strong></p>
+
+<h3>The plan-only predicate (read-only, safe)</h3>
+
+<pre class="code" data-lang="shell" data-title="terraform-bisect-plan.sh">#!/usr/bin/env bash
+# terraform-bisect-plan.sh
+# Bisects without ever applying. Looks for the commit at which `terraform plan`
+# starts producing a specific diff signature — e.g. "creating an open S3 bucket"
+# or "destroying RDS database".
+#
+# Exit 0 = good (diff signature absent), 1 = bad (signature present).
+set -uo pipefail
+
+WORKSPACE="${WORKSPACE:-bisect}"
+SIGNATURE="${SIGNATURE:?set SIGNATURE — a string that uniquely identifies the bad change in a plan output}"
+
+# Sanity: skip if the commit doesn't even initialize.
+terraform init -input=false -no-color &gt;/dev/null 2&gt;&amp;1 || exit 125
+terraform workspace select "$WORKSPACE" 2&gt;/dev/null || terraform workspace new "$WORKSPACE"
+
+# Run a non-destructive plan.
+terraform plan -no-color -input=false -refresh=false -out=/tmp/tfplan &gt;/tmp/plan.out 2&gt;&amp;1
+RC=$?
+
+# Provider errors (e.g. AWS credentials expired) — skip, not the bug.
+grep -qE "Error:|InvalidClientToken|AccessDenied" /tmp/plan.out &amp;&amp; [ $RC -ne 0 ] &amp;&amp; exit 125
+
+if grep -qF "$SIGNATURE" /tmp/plan.out; then
+  exit 1   # the bad change is present
+else
+  exit 0   # not yet
+fi
+</pre>
+
+<h3>Example signatures that work well</h3>
+<table class="cmp">
+<tr><th>Bug</th><th>Signature string</th></tr>
+<tr><td>Public S3 bucket appeared</td><td><code>"acl" = "public-read"</code></td></tr>
+<tr><td>RDS instance to be replaced</td><td><code>"# aws_db_instance.main must be replaced"</code></td></tr>
+<tr><td>Open SG rule appeared</td><td><code>"cidr_blocks = [\"0.0.0.0/0\"]"</code></td></tr>
+<tr><td>Instance class downgraded</td><td><code>"instance_class" = "db.t3.micro"</code> (when it should be larger)</td></tr>
+<tr><td>Bucket lifecycle removed</td><td><code>"- lifecycle_rule"</code> in the diff</td></tr>
+</table>
+
+<h3>Bisecting <em>state</em>, not config</h3>
+<p>Sometimes the config didn't change — Terraform <em>drifted</em>. Someone clicked something in the AWS console. To find when:</p>
+
+<pre class="code" data-lang="shell" data-title="terraform-state-bisect.sh">#!/usr/bin/env bash
+# Bisects across terraform state snapshots (backed up by remote state versioning,
+# e.g. S3 versioning or Terraform Cloud state history).
+#
+# For each historical state, run `terraform plan` AGAINST IT and check whether
+# the drift signature is present. The "good" version is the last one without drift.
+STATES_DIR="${1:?path to versioned state files}"
+SIGNATURE="$2"
+
+for state in $(ls "$STATES_DIR"/*.tfstate | sort); do
+  cp "$state" terraform.tfstate
+  terraform plan -no-color -refresh=true &gt;/tmp/p.out 2&gt;&amp;1
+  if grep -qF "$SIGNATURE" /tmp/p.out; then
+    echo "DRIFT first appears in state: $state"
+    break
+  fi
+done
+</pre>
+
+<h3>For Pulumi, CloudFormation, CDK</h3>
+<table class="cmp">
+<tr><th>Tool</th><th>Plan command</th><th>Bisection-suitable</th></tr>
+<tr><td>Terraform</td><td><code>terraform plan -refresh=false</code></td><td>Yes — easiest case</td></tr>
+<tr><td>Pulumi</td><td><code>pulumi preview --json</code></td><td>Yes — JSON output is ideal for grep</td></tr>
+<tr><td>AWS CDK</td><td><code>cdk diff</code></td><td>Yes — diff output is grep-friendly</td></tr>
+<tr><td>AWS CloudFormation</td><td><code>aws cloudformation create-change-set</code></td><td>Yes but slower — change-sets take 30+ seconds</td></tr>
+<tr><td>Ansible (imperative)</td><td>—</td><td>No native plan — bisection is harder, use <code>--check</code> mode</td></tr>
+</table>
+
+<h3>The senior move: signature your changes</h3>
+<p>The hardest part of IaC bisection is naming the right signature. A team that adopts the practice of writing one-line comments above sensitive changes makes their own bisections trivial later:</p>
+
+<pre class="code" data-lang="terraform" data-title="signed-change.tf"># BISECT-MARKER: opening security group for monitoring stack (2026-05-12, PR #4827)
+resource "aws_security_group_rule" "monitoring_ingress" {
+  type        = "ingress"
+  from_port   = 9090
+  to_port     = 9090
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+  security_group_id = aws_security_group.monitoring.id
+}
+</pre>
+
+<p>A year later, when monitoring traffic mysteriously stops reaching this rule, the bisection signature is literally the comment text.</p>
+
+<div class="callout bad">
+<div class="callout-title">When NOT to bisect IaC</div>
+<p>If applying an old commit would cost money or break production, don't. Use the plan-only approach. If even the plan is unsafe (e.g., it requires credentials your CI can't safely give), do a <em>git log -p k8s/</em> or <em>git log -p terraform/</em> and read the diffs manually — sometimes 10 minutes of careful reading is faster than setting up a safe bisection environment.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Feature Flags" data-part="X — Modern Systems">
+<span class="badge">Part X · Modern Systems</span>
+<h2 class="page-title">Bisecting Feature Flag Configurations</h2>
+<p class="lede">Modern apps run dozens to hundreds of feature flags simultaneously. When something breaks, the cause is often "a specific combination of flags." Linear search is O(N²) over flag combinations; bisection turns it into O(log N). This page walks through how.</p>
+
+<h3>The combinatorial problem</h3>
+<p>You have 12 feature flags, each on or off. That's 2¹² = 4,096 possible combinations. Users hit different combinations depending on their cohort. A bug appears for some users but not others — meaning <em>some combination</em> is buggy.</p>
+<p>You can't test all 4,096 combinations. But you can bisect.</p>
+
+<h3>The single-flag case</h3>
+<p>The simplest version: you suspect one flag introduced the bug. Toggle it for an internal user; reproduce the bug; turn it back on. Confirmed in one round.</p>
+<p>This is just a controlled experiment, not bisection. Use it when you have a strong hypothesis about which flag.</p>
+
+<h3>The "which flag is it?" case</h3>
+<p>You don't know which of N flags is to blame. Test the user with all N flags enabled (bug reproduces). Now turn off half:</p>
+
+<pre class="code" data-lang="javascript" data-title="flag-bisect.mjs">#!/usr/bin/env node
+// flag-bisect.mjs
+// Bisect across N feature flags to find which one(s) cause a regression.
+//
+// USAGE:
+//   FLAGS=flagA,flagB,flagC,...  node flag-bisect.mjs "&lt;test command&gt;"
+//
+// The test command should exit 0 if the bug is NOT present, nonzero if it IS.
+//
+import { spawnSync } from 'child_process';
+
+const ALL = (process.env.FLAGS || '').split(',').filter(Boolean);
+const TEST = process.argv[2];
+
+if (!ALL.length || !TEST) {
+  console.error('Set FLAGS and pass a test command');
+  process.exit(2);
+}
+
+function reproduces(enabled) {
+  // Apply the chosen flag set via env var (or your flag system's API).
+  const envFlags = Object.fromEntries(
+    ALL.map(f =&gt; [`FLAG_${f.toUpperCase()}`, enabled.includes(f) ? '1' : '0'])
+  );
+  const r = spawnSync('sh', ['-c', TEST], {
+    env: { ...process.env, ...envFlags },
+    stdio: 'inherit',
+  });
+  return r.status !== 0;   // nonzero = bug present
+}
+
+// Confirm endpoints.
+if (!reproduces(ALL)) { console.error('No bug when ALL flags on — repro broken'); process.exit(2); }
+if (reproduces([]))  { console.error('Bug present with NO flags — not a flag issue'); process.exit(2); }
+
+// Standard ddmin-style narrowing.
+let suspects = ALL.slice();
+while (suspects.length &gt; 1) {
+  const mid = Math.floor(suspects.length / 2);
+  const left = suspects.slice(0, mid);
+  const right = suspects.slice(mid);
+  if (reproduces(left))       suspects = left;
+  else if (reproduces(right)) suspects = right;
+  else {
+    // Bug needs flags from BOTH halves — proper Delta Debugging time.
+    console.error('Multi-flag interaction detected; switching to ddmin');
+    suspects = ddmin(suspects);
+    break;
+  }
+  console.log(`narrowed to ${suspects.length} flags: ${suspects.join(', ')}`);
+}
+
+console.log('Culprit flag(s):', suspects.join(', '));
+
+// Delta Debugging fallback when single bisection isn't enough.
+function ddmin(input) {
+  let S = input;
+  let n = 2;
+  while (S.length &gt;= 2) {
+    const sz = Math.ceil(S.length / n);
+    let progressed = false;
+    for (let i = 0; i &lt; S.length; i += sz) {
+      const complement = [...S.slice(0, i), ...S.slice(i + sz)];
+      if (reproduces(complement)) { S = complement; n = Math.max(n - 1, 2); progressed = true; break; }
+    }
+    if (!progressed) {
+      if (n &gt;= S.length) break;
+      n = Math.min(n * 2, S.length);
+    }
+  }
+  return S;
+}
+</pre>
+
+<h3>The "flag-with-flag" interaction</h3>
+<p>Some bugs only appear when two specific flags are both on. Single-flag toggling won't find these; the <code>ddmin</code> fallback above does. It's the same Delta Debugging algorithm from Part IX, applied to flag sets.</p>
+
+<h3>Integrating with real flag systems</h3>
+<table class="cmp">
+<tr><th>System</th><th>How to set per-test overrides</th></tr>
+<tr><td>LaunchDarkly</td><td><code>ldClient.variation(key, user, default)</code> — pass a custom user with attributes matching the test cohort</td></tr>
+<tr><td>Statsig</td><td>Use Statsig's <em>local overrides</em> in dev/test: <code>statsig.overrideGate(name, value)</code></td></tr>
+<tr><td>Unleash</td><td>Environment-specific strategies — point the bisector at a dedicated test environment</td></tr>
+<tr><td>Home-grown (env vars)</td><td>Just pass <code>FLAG_X=1</code> in the env, as in the script above</td></tr>
+<tr><td>GrowthBook</td><td><code>growthbook.setForcedFeatures(new Map(...))</code> for test isolation</td></tr>
+</table>
+
+<h3>What signals a flag-related bug vs. a code bug</h3>
+<ul>
+  <li>Bug appears for some users, not others, on the SAME version of the code → likely flag-related.</li>
+  <li>Bug appears more often as flag rollouts increase → almost certainly flag-related.</li>
+  <li>Bug appears in tests when flags are randomized → flag-related (your suite is finding a real issue).</li>
+  <li>Bug appears for ALL users at the moment a flag was rolled to 100% → confirmed flag-related.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>Heavy flag use is great for safe rollouts but generates a debugging tax over time. The senior engineer's role isn't only to bisect when bugs appear, but to <em>cap the tax</em>: enforce flag expiry policies (every flag has a kill date), track flag combinations exercised in CI, and make every flag's full state observable in production. A team with 100 long-lived flags is a team that will eventually spend a week bisecting an unreproducible bug. A team with 10 short-lived flags is fast forever.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting Docker Image Layers" data-part="X — Modern Systems">
+<span class="badge">Part X · Modern Systems</span>
+<h2 class="page-title">Bisecting Docker Image Layers</h2>
+<p class="lede">Your container's been working for months. Today it builds successfully but the resulting image is 800 MB larger than yesterday's, or crashes immediately on startup, or has a vulnerability scan failure. The Dockerfile has 30 lines and 30 layers. Bisecting layers narrows the culprit to one line.</p>
+
+<h3>Why layers are bisectable</h3>
+<p>A Dockerfile produces a stack of layers — each <code>RUN</code>, <code>COPY</code>, <code>ADD</code> instruction makes one. Docker (and Buildah, Podman) caches them content-addressably. If you stop the build at layer N, you get an intermediate image you can run and inspect. Bisecting across N is fast because cached layers don't rebuild.</p>
+
+<h3>The basic technique: target stages</h3>
+
+<pre class="code" data-lang="dockerfile" data-title="instrumented-Dockerfile">FROM node:20-alpine AS stage-base
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+
+FROM stage-base AS stage-deps
+RUN corepack enable &amp;&amp; pnpm install --frozen-lockfile
+
+FROM stage-deps AS stage-build
+COPY . .
+RUN pnpm build
+
+FROM stage-build AS stage-prune
+RUN pnpm prune --prod
+
+FROM node:20-alpine AS stage-final
+WORKDIR /app
+COPY --from=stage-prune /app /app
+CMD ["node", "dist/server.js"]
+</pre>
+
+<p>Now you can build any intermediate stage and probe it:</p>
+
+<pre class="code" data-lang="shell" data-title="docker-stage-probe.sh">#!/usr/bin/env bash
+# Build a target stage and inspect its size.
+STAGE="${1:-stage-final}"
+docker build --target "$STAGE" -t bisect:"$STAGE" .
+docker image ls bisect:"$STAGE" --format '{{.Size}}'
+</pre>
+
+<h3>The image-size bisector</h3>
+
+<pre class="code" data-lang="shell" data-title="docker-size-bisect.sh">#!/usr/bin/env bash
+# docker-size-bisect.sh
+# Bisect Dockerfile instructions to find which line bloated the image.
+#
+# Strategy: comment out lines from the BOTTOM up, rebuild, measure size.
+# Binary search the cutoff line.
+set -uo pipefail
+
+THRESHOLD_MB="${THRESHOLD_MB:?expected acceptable size in MB}"
+DOCKERFILE="${DOCKERFILE:-Dockerfile}"
+LINES=$(grep -cE '^(RUN|COPY|ADD)' "$DOCKERFILE")
+
+size_at_line() {
+  local cutoff="$1"
+  awk -v c="$cutoff" 'NR&lt;=c { print; next } /^(RUN|COPY|ADD)/ { print "# CUT: "$0; next } { print }' \
+    "$DOCKERFILE" &gt; /tmp/Dockerfile.bisect
+  docker build -q -f /tmp/Dockerfile.bisect -t bisect:probe . &gt;/dev/null 2&gt;&amp;1 || return 125
+  docker image inspect bisect:probe --format '{{.Size}}'
+}
+
+lo=1; hi=$LINES
+while (( lo &lt; hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  bytes=$(size_at_line "$mid")
+  mb=$(( bytes / 1024 / 1024 ))
+  echo "lines 1..$mid: $mb MB"
+  if (( mb &lt; THRESHOLD_MB )); then lo=$((mid + 1)); else hi=$mid; fi
+done
+
+echo "Bloat-introducing instruction is on line $lo (or just before)."
+awk "NR==$lo" "$DOCKERFILE"
+</pre>
+
+<h3>The startup-crash bisector</h3>
+<p>Image builds fine; container crashes on start. The bug is either in the final layer's <code>CMD</code> or in something a prior layer installed. Use multi-stage probe:</p>
+
+<pre class="code" data-lang="shell" data-title="docker-crash-bisect.sh">#!/usr/bin/env bash
+# docker-crash-bisect.sh
+# Find the layer at which `docker run image -- node dist/server.js` starts crashing.
+set -uo pipefail
+STAGES=( stage-base stage-deps stage-build stage-prune stage-final )
+
+for s in "${STAGES[@]}"; do
+  docker build -q --target "$s" -t bisect:"$s" . &gt;/dev/null
+  # Override the entrypoint to run the same smoke test in every stage.
+  if docker run --rm bisect:"$s" sh -c 'node -e "console.log(process.versions.node)"' &gt;/dev/null 2&gt;&amp;1; then
+    echo "$s: OK"
+  else
+    echo "$s: CRASH"
+    break
+  fi
+done
+</pre>
+
+<h3>Inspecting individual layers</h3>
+<p><code>dive</code> (<a href="https://github.com/wagoodman/dive" target="_blank" rel="noopener">github.com/wagoodman/dive</a>) is the canonical layer-inspection tool. It lets you walk through each layer's filesystem changes — "what did this RUN actually add?" Indispensable for "where did this 300 MB come from?"</p>
+
+<pre class="code" data-lang="shell" data-title="dive-inspect.sh">dive bisect:stage-deps    # interactive — arrow keys to navigate layers
+</pre>
+
+<h3>Bisecting base image upgrades</h3>
+<p>You bumped <code>FROM node:20-alpine</code> to <code>FROM node:22-alpine</code>. Something broke. Bisect the base image:</p>
+
+<pre class="code" data-lang="shell" data-title="base-image-bisect.sh">#!/usr/bin/env bash
+# Each line is one version to test.
+for tag in 22-alpine 21-alpine 20-alpine 18-alpine; do
+  sed -i.bak "s|^FROM node:.*-alpine|FROM node:$tag|" Dockerfile
+  if docker build -t bisect:"$tag" . &amp;&amp; docker run --rm bisect:"$tag" pnpm test; then
+    echo "$tag: OK"
+  else
+    echo "$tag: FAIL"
+  fi
+done
+mv Dockerfile.bak Dockerfile
+</pre>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>The senior move is preventing the need to bisect Docker layers — by writing Dockerfiles that are short, layered for cacheability, and have explicit named stages. A 30-line Dockerfile that "works" is technical debt; a 12-line one that's deliberately structured is an asset. Bisection is the diagnostic tool when prevention failed; prevention is the better engineering.</p>
+</div>
+</template>
+
+<template data-page-title="Bisecting API Contracts and Schemas" data-part="X — Modern Systems">
+<span class="badge">Part X · Modern Systems</span>
+<h2 class="page-title">Bisecting API Contracts and GraphQL Schemas</h2>
+<p class="lede">A frontend and a backend evolve together. One day, the frontend starts crashing with "Cannot read property 'name' of undefined." The API contract changed somewhere in the last 50 commits — a field got renamed, a type went from required to optional, or a deprecated field was removed. Bisecting the OpenAPI spec or GraphQL schema finds the breaking change.</p>
+
+<h3>OpenAPI / REST contracts</h3>
+
+<pre class="code" data-lang="shell" data-title="openapi-diff-bisect.sh">#!/usr/bin/env bash
+# openapi-diff-bisect.sh
+# Bisect across commits of an OpenAPI spec to find a breaking change.
+#
+# Uses oasdiff (https://github.com/oasdiff/oasdiff) — a CLI that classifies
+# spec diffs as breaking, non-breaking, or info-level.
+#
+# Predicate: at this commit, does the spec contain ANY breaking change
+# relative to the last known good?
+LAST_GOOD="${1:?last-known-good SHA}"
+SPEC="${2:-openapi.yaml}"
+
+# Materialize the good baseline once.
+git show "$LAST_GOOD:$SPEC" &gt; /tmp/openapi.good.yaml
+
+cat &gt; predicate.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+SPEC="${SPEC:-openapi.yaml}"
+[ -f "$SPEC" ] || exit 125
+# oasdiff returns nonzero if there are breaking changes.
+oasdiff breaking /tmp/openapi.good.yaml "$SPEC" --format text
+EOF
+chmod +x predicate.sh
+
+git bisect start HEAD "$LAST_GOOD"
+git bisect run ./predicate.sh
+git bisect reset
+</pre>
+
+<h3>What "breaking" actually means</h3>
+<table class="cmp">
+<tr><th>Change to the spec</th><th>Breaking?</th></tr>
+<tr><td>Adding a new endpoint</td><td>No</td></tr>
+<tr><td>Adding an optional field to a response</td><td>No</td></tr>
+<tr><td>Adding a required field to a request body</td><td>Yes — existing clients won't send it</td></tr>
+<tr><td>Removing a field from a response</td><td>Yes — clients reading it will fail</td></tr>
+<tr><td>Changing a field's type (string → number)</td><td>Yes</td></tr>
+<tr><td>Making a previously-optional field required</td><td>Yes for the request side</td></tr>
+<tr><td>Renaming an enum value</td><td>Yes</td></tr>
+<tr><td>Tightening validation (e.g., max length)</td><td>Yes</td></tr>
+<tr><td>Removing an endpoint</td><td>Yes</td></tr>
+</table>
+
+<h3>GraphQL schemas</h3>
+<p>GraphQL's type system makes contract changes machine-checkable. Use <code>graphql-inspector</code> (<a href="https://the-guild.dev/graphql/inspector" target="_blank" rel="noopener">the-guild.dev/graphql/inspector</a>):</p>
+
+<pre class="code" data-lang="shell" data-title="graphql-bisect.sh">#!/usr/bin/env bash
+# graphql-bisect.sh — find the commit that introduced a breaking schema change.
+LAST_GOOD="${1:?last-known-good SHA}"
+SCHEMA="${2:-schema.graphql}"
+
+git show "$LAST_GOOD:$SCHEMA" &gt; /tmp/schema.good.graphql
+
+cat &gt; predicate.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+SCHEMA="${SCHEMA:-schema.graphql}"
+[ -f "$SCHEMA" ] || exit 125
+# Exit 1 if BREAKING changes are present.
+pnpm dlx @graphql-inspector/cli diff \
+  /tmp/schema.good.graphql "$SCHEMA" \
+  --fail-on-breaking
+EOF
+chmod +x predicate.sh
+
+git bisect start HEAD "$LAST_GOOD"
+git bisect run ./predicate.sh
+git bisect reset
+</pre>
+
+<h3>Bisecting at the runtime level (not just the spec)</h3>
+<p>Sometimes the spec is unchanged but the server's behavior changed (the implementation drifted from the spec). For that, use a <em>contract test</em> as the predicate:</p>
+
+<pre class="code" data-lang="javascript" data-title="contract-test-predicate.mjs">#!/usr/bin/env node
+// contract-test-predicate.mjs
+// Boots the server, runs a small set of contract assertions, exits 0/1.
+import { spawn, spawnSync } from 'child_process';
+
+const server = spawn('node', ['dist/server.js'], { stdio: 'inherit' });
+await new Promise(r =&gt; setTimeout(r, 1500));
+
+try {
+  // Replace with your contract assertions.
+  const cases = [
+    ['GET', '/users/1',     { ok: r =&gt; r.id === 1 &amp;&amp; r.email } ],
+    ['GET', '/orders/42',   { ok: r =&gt; r.total &gt; 0 &amp;&amp; r.items.length } ],
+    ['POST','/checkout',    { ok: r =&gt; r.transactionId } ],
+  ];
+  for (const [method, path, { ok }] of cases) {
+    const res = await fetch('http://localhost:3000' + path, { method });
+    if (!res.ok) process.exit(1);
+    const body = await res.json();
+    if (!ok(body)) process.exit(1);
+  }
+  process.exit(0);
+} finally {
+  server.kill();
+}
+</pre>
+
+<h3>Frontend-side: bisecting against the live API</h3>
+<p>When you can't bisect the backend (it's owned by another team), bisect the frontend's expectations against a stable API:</p>
+
+<pre class="code" data-lang="javascript" data-title="frontend-bisect-predicate.mjs">#!/usr/bin/env node
+// Boots the frontend (current commit), points it at the production API, runs
+// Playwright through the broken user flow. If the flow fails, this commit
+// is incompatible with the current API.
+import { spawnSync } from 'child_process';
+const r = spawnSync('pnpm', ['dlx', 'playwright', 'test', 'e2e/checkout.spec.ts',
+  '--', '--config=playwright.production-api.config.ts'], { stdio: 'inherit' });
+process.exit(r.status);
+</pre>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>The principal engineer's move on API contracts isn't to be the fastest bisector — it's to make contract drift impossible. Run <code>oasdiff</code>/<code>graphql-inspector</code> as a required check on every PR that touches the spec. Block merges that introduce breaking changes without an explicit "breaking-change-approved" label. Force a deprecation window before removal. When you've done this, you almost never need to bisect a contract regression — because they don't reach <code>main</code>.</p>
+</div>
+</template>
+
+<template data-page-title="Designing Systems to Be Bisectable" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Designing Systems to Be Bisectable</h2>
+<p class="lede">Engineers below the senior level treat bisection as a debugging tactic. Principal engineers treat it as a <em>system property</em> — something you design in, not bolt on later. A system that's bisectable is fundamentally cheaper to operate, because every regression is a 30-minute investigation instead of a multi-day one. This page is the design playbook.</p>
+
+<h3>The eight properties of a bisectable system</h3>
+
+<table class="cmp">
+<tr><th>Property</th><th>Why it matters for bisection</th></tr>
+<tr><td>1. Atomic commits</td><td>Each commit is one logical change. A bisection that lands on a 5,000-line PR is useless; one that lands on a 30-line commit is a fix.</td></tr>
+<tr><td>2. Reversible deploys</td><td>If you can't roll back, you can't easily test "is this version good or bad?"</td></tr>
+<tr><td>3. Reproducible builds</td><td>The same commit must produce the same artifact every time. Otherwise "this commit is bad" might just be a flaky build.</td></tr>
+<tr><td>4. Hermetic tests</td><td>The same test on the same commit must produce the same result. Otherwise flakes destroy the bisection.</td></tr>
+<tr><td>5. Fast feedback</td><td>Bisecting is N rounds of "build + test." Each round at 8 minutes = ~80-minute bisection. Each round at 60 seconds = 10-minute bisection.</td></tr>
+<tr><td>6. Observable behavior</td><td>The predicate needs to <em>see</em> what's happening. Add structured logs, metrics, traces.</td></tr>
+<tr><td>7. Stable interfaces</td><td>A bisection that lands on a commit where the API doesn't exist yet is wasted. Stable public surfaces let predicates outlast individual versions.</td></tr>
+<tr><td>8. Versioned data</td><td>If a bug depends on data shape, the data version must be known per commit (database migrations, fixtures).</td></tr>
+</table>
+
+<h3>Designing for property 1: atomic commits</h3>
+<p>The single highest-leverage design choice for bisectability is a culture of small, well-described, single-purpose commits. Concrete practices:</p>
+<ul>
+  <li><strong>Commit-lint in CI.</strong> Reject PRs whose commits don't follow conventional-commits format (<code>type(scope): subject</code>).</li>
+  <li><strong>Rebase, don't merge.</strong> Linear history is far easier to bisect than a tangle of merges.</li>
+  <li><strong>Squash judgement, not policy.</strong> Sometimes squashing helps; sometimes it loses bisection-relevant detail. Train engineers to decide per-PR.</li>
+  <li><strong>"What broke?" comments in every PR description.</strong> When bisection lands here a year later, the PR description is what the on-call reads.</li>
+</ul>
+
+<h3>Designing for property 4: hermetic tests</h3>
+<p>Tests that touch the real network, real time, real disk, or real database state will flake. Flaky tests poison bisections (Part I's "Flake-Resistant Predicates" walks the tactics). The structural fix is to <em>make hermetic the default</em>:</p>
+<ul>
+  <li>All HTTP in tests goes through a mock server (MSW, nock, WireMock).</li>
+  <li>All time uses a fake clock (sinon, vi.useFakeTimers).</li>
+  <li>All randomness uses a seeded RNG controlled by the test.</li>
+  <li>All filesystem use is under a per-test temp directory.</li>
+  <li>All databases are per-test schemas (or in-memory engines like SQLite).</li>
+</ul>
+<p>Yes, this takes engineering effort. The return: every test is deterministic forever. Every future bisection works. The investment compounds.</p>
+
+<h3>Designing for property 5: fast feedback</h3>
+<p>If your build takes 15 minutes, bisection over 20 commits takes 75 minutes minimum. The senior move: make CI fast as a design priority, not an afterthought.</p>
+<ul>
+  <li><strong>Incremental builds.</strong> Don't rebuild what didn't change. Bazel, Nx, Turborepo all do this; package.json + pnpm can with care.</li>
+  <li><strong>Parallelized tests.</strong> 1000 tests / 10 cores = 100 unit-tests-per-core, not 1000-tests-serial.</li>
+  <li><strong>Cached dependencies.</strong> <code>pnpm install --frozen-lockfile --prefer-offline</code> + a CI cache of the pnpm store. Install drops from minutes to seconds.</li>
+  <li><strong>Layer Docker builds.</strong> A multi-stage Dockerfile where dependency-install is one layer means changing source doesn't reinstall deps.</li>
+</ul>
+
+<h3>Designing for property 7: stable interfaces</h3>
+<p>Bisection predicates are usually scripts that exercise an API. If the API changes shape every week, your predicate keeps breaking. The senior move:</p>
+<ul>
+  <li><strong>Versioned API endpoints</strong> (<code>/v1/users</code>, <code>/v2/users</code>) so old clients keep working during transitions.</li>
+  <li><strong>Generate clients from spec</strong> so bisection predicates regenerate when the spec changes.</li>
+  <li><strong>Treat the spec as code.</strong> Lint it. Diff it. Block breaking PRs.</li>
+</ul>
+
+<h3>Designing for property 8: versioned data</h3>
+<p>Bug repros often need specific data shapes. If the schema migrated at commit X, predicates that run before X need the old schema. The design move:</p>
+<ul>
+  <li><strong>Number every migration.</strong> 0001, 0002, ..., committed alongside the code that uses them.</li>
+  <li><strong>Predicates start with "migrate to the current commit's schema."</strong> This is one line in most ORMs.</li>
+  <li><strong>Migrations must be reversible.</strong> Otherwise bisection going backward can't move past a migration.</li>
+</ul>
+
+<h3>The full "bisectability scorecard"</h3>
+
+<pre class="code" data-lang="markdown" data-title="bisectability-scorecard.md"># Bisectability Scorecard — score each system you maintain
+
+## Commit hygiene
+[ ] Conventional-commit format enforced in CI
+[ ] Linear history (rebase-merge or squash-merge, not true merges)
+[ ] Average commit size &lt; 200 lines added
+
+## Reproducibility
+[ ] Same commit + same input → bitwise-identical artifact
+[ ] Lockfile committed and honored in CI
+[ ] Build cache invalidates correctly on dependency changes
+
+## Test hermeticity
+[ ] All HTTP mocked
+[ ] Time mockable
+[ ] Random seeded per test
+[ ] DB per-test isolation
+[ ] No test depends on test order
+
+## Feedback speed
+[ ] Single commit → CI in &lt; 5 minutes for the common case
+[ ] Incremental builds working
+[ ] Parallelism in test runner
+
+## Observability
+[ ] Structured logs (JSON) for every non-trivial event
+[ ] Metrics on every public endpoint
+[ ] Distributed tracing in production
+
+## Interface stability
+[ ] API versioning policy in place
+[ ] Schema diff blocking on breaking changes
+[ ] Deprecation window enforced
+
+## Data versioning
+[ ] Numbered migrations
+[ ] Reversible migrations
+[ ] Migration state queryable
+
+Score = boxes checked / total. Below 50% = bisection will be painful.
+</pre>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>"Make it bisectable" is not a project. It's a tax you pay continuously, on every PR, in exchange for hours back when something breaks. The principal engineer's job isn't to do every checklist item — it's to advocate for the design choices that make the checklist achievable, then teach the team why each one matters. The teams whose bisections always work are the teams that designed for it three years ago. Be that engineer.</p>
+</div>
+</template>
+
+<template data-page-title="Bisection in Production Incident Response" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Bisection in Production Incident Response</h2>
+<p class="lede">A real outage is happening. Users can't log in. The CTO is in your channel. You have to choose between "find the cause" (slow, correct) and "stop the bleeding" (fast, possibly imperfect). This page is about how bisection fits into the incident response workflow — and when to use it vs. when to skip it for now.</p>
+
+<h3>The incident timeline</h3>
+<table class="cmp">
+<tr><th>Phase</th><th>Goal</th><th>Bisection's role</th></tr>
+<tr><td>Detect</td><td>"Something is wrong." Alerts fire, users report.</td><td>None yet.</td></tr>
+<tr><td>Triage</td><td>"What's the impact and severity?"</td><td>None yet — incident commander gathers facts.</td></tr>
+<tr><td>Mitigate</td><td>"Stop user pain — even temporarily."</td><td>Sometimes — see below.</td></tr>
+<tr><td>Resolve</td><td>"Identify and apply the actual fix."</td><td>This is where bisection shines.</td></tr>
+<tr><td>Postmortem</td><td>"Why did this happen, and how do we prevent it?"</td><td>The bisection log is the strongest evidence in the writeup.</td></tr>
+</table>
+
+<h3>Mitigate vs. Resolve: the senior engineer's choice</h3>
+<p>The biggest mistake in incident response is conflating these two phases. They have opposite optimal strategies:</p>
+<ul>
+  <li><strong>Mitigate</strong> = fast, reversible action that stops user pain. Roll back to the last known good version. Disable the feature flag. Failover to the secondary region. Don't worry about root cause yet.</li>
+  <li><strong>Resolve</strong> = correct action that fixes the underlying problem. Find the cause. Fix it. Validate the fix. Re-deploy.</li>
+</ul>
+<p>You almost always mitigate first, then resolve. Bisection happens during resolve, not during mitigate.</p>
+
+<h3>The "rollback IS bisection" technique</h3>
+<p>For deployment-driven outages, the fastest mitigation is also a single bisection round: roll back one deploy. If pain stops → the cause was in the most recent deploy. If pain continues → roll back the one before that. After 3 rollbacks, you've bisected production.</p>
+
+<p>The structural design that enables this: <strong>every deploy is a tag, every tag is reversible, rollback takes under 60 seconds.</strong> A team without this has no fast mitigation. A team with it can solve most incidents in five minutes — even before the on-call engineer is fully awake.</p>
+
+<h3>When the bug isn't in code: bisecting external events</h3>
+<p>Sometimes nothing on your side changed. The outage is caused by:</p>
+<ul>
+  <li>An upstream provider's silent change (a cloud API behavior shift, an upstream package republish).</li>
+  <li>A traffic spike from a marketing email or social-media moment.</li>
+  <li>A long-tail edge case that finally hit.</li>
+  <li>A scheduled job that just landed.</li>
+</ul>
+<p>Bisection here is across <em>events</em>, not commits:</p>
+
+<pre class="code" data-lang="shell" data-title="incident-timeline-bisect.sh">#!/usr/bin/env bash
+# Bisect the incident's timeline window — what changed in the period before
+# things broke? Pull every change from every system that touches production.
+START="${1:?incident start time, ISO format}"
+END="${2:?incident end time}"
+
+echo "=== Code deploys in window ==="
+git log --since="$START" --until="$END" --oneline
+
+echo "=== Infrastructure changes ==="
+terraform-cloud-cli runs list --workspace prod --since "$START" --until "$END"
+
+echo "=== Feature flag changes ==="
+ld-cli audit-log list --start "$START" --end "$END"
+
+echo "=== Database schema changes ==="
+psql -c "SELECT * FROM schema_migrations WHERE applied_at BETWEEN '$START' AND '$END';"
+
+echo "=== Upstream package versions installed in this window ==="
+git log --since="$START" --until="$END" --diff-filter=M -p -- pnpm-lock.yaml
+</pre>
+
+<p>Bisecting this combined timeline often points at the actual cause within minutes — even when "nothing on your side changed."</p>
+
+<h3>The incident commander's bisection discipline</h3>
+<p>When you're leading an incident, the urge is to type fast and try things. The senior discipline:</p>
+<ol>
+  <li>State the current hypothesis explicitly. ("We think it's the deploy from 14:32.")</li>
+  <li>State the test of the hypothesis. ("Rolling back to the prior version should restore login.")</li>
+  <li>State who's running the test. ("Sara is rolling back; she'll confirm in three minutes.")</li>
+  <li>Pause while the test runs. Don't pile more changes on top.</li>
+  <li>Record the result in the channel. ("Rollback complete; login working. Hypothesis confirmed.")</li>
+</ol>
+<p>This is the scientific method run live, with stakes. Engineers who do this well become the people other engineers want to follow.</p>
+
+<h3>What to write in the incident channel after bisection</h3>
+<p>Three sentences, no more:</p>
+<pre class="code" data-lang="markdown" data-title="incident-update.md">**Root cause identified.**
+
+Bisection across the 14 deploys since 13:00 narrowed the regression to
+commit `a3f9c81` — a config change that lowered the connection pool size
+from 100 to 10. The fix is to revert that line; deploying now.
+
+ETA on full recovery: 4 minutes.
+</pre>
+<p>That update tells every stakeholder exactly what they need to know. Compare to "we're still looking into it" — which gives the CTO no information and panics customer support.</p>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>The mark of a distinguished engineer in incident response is calm, sequenced communication and disciplined hypothesis-testing under pressure. Bisection is a tool, but the deeper skill is staying methodical when everyone around you is reactive. Practice this skill BEFORE the next big incident — run a "game day" with the team, simulate an outage, watch how people behave. The first time you see yourself stay calm and lead the bisection while the channel is on fire, you've crossed a level. That's the moment you become the engineer the team turns to next time.</p>
+</div>
+</template>
+
+<template data-page-title="Bisection vs. Observability" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Bisection vs. Observability — Complementary Tools</h2>
+<p class="lede">Observability — metrics, logs, traces — tells you what your system is doing right now. Bisection tells you what changed to cause it. The two are not alternatives; they're complementary, and the most effective engineers know which to reach for first. This page is the framework.</p>
+
+<h3>The two questions, in plain English</h3>
+<table class="cmp">
+<tr><th>Question</th><th>Tool</th></tr>
+<tr><td>"What is the system doing right now?"</td><td>Observability (Prometheus, Grafana, Honeycomb, Datadog, Splunk)</td></tr>
+<tr><td>"What changed to cause it?"</td><td>Bisection (git bisect, this entire curriculum)</td></tr>
+</table>
+
+<p>Many bugs need both. You see in observability that p99 latency tripled. You bisect to find when. You confirm in observability that the suspect commit's metrics match the symptom. Each tool feeds the other.</p>
+
+<h3>The decision framework</h3>
+
+<pre class="code" data-lang="text" data-title="observability-vs-bisection.txt">START → Did this used to work?
+  │
+  ├── YES → BISECT first to find the change. Use observability to confirm.
+  │
+  └── NO  → OBSERVE first to characterize. Use bisection if a refactor introduced it.
+
+START → Is the bug reproducible in dev?
+  │
+  ├── YES → BISECT. The repro is the predicate.
+  │
+  └── NO  → OBSERVE in production. Find the data shape that triggers it.
+            Use the data to write a repro. Then bisect.
+
+START → Is there an alert firing?
+  │
+  ├── YES → OBSERVE the dashboards. Build situational awareness.
+  │         Then bisect the deploy that triggered the alert.
+  │
+  └── NO  → User reports? OBSERVE the user's session via logs/traces.
+            Reproduce. Then bisect.
+
+START → Is the symptom slow performance?
+  │
+  ├── A specific function is slow → PROFILE (a form of observability).
+  │
+  └── Overall p95 grew over time → BISECT against a perf-budget predicate.
+</pre>
+
+<h3>Observability that makes bisection easy</h3>
+<p>Some observability practices actively support bisection:</p>
+<ul>
+  <li><strong>Tag every metric/log with the deploy SHA.</strong> Grafana's <code>version="a3f9c81"</code> label means you can instantly see "did p99 change at this commit?"</li>
+  <li><strong>Deploy markers on dashboards.</strong> A vertical line per deploy on every graph. Eyeballing this often skips bisection entirely.</li>
+  <li><strong>Per-feature-flag metrics.</strong> Segment dashboards by flag combination. Bug only appears with flag X on? Instantly visible.</li>
+  <li><strong>Structured logs with trace IDs.</strong> A user-reported bug at 14:23? Pull all logs with that trace ID across all services. No bisection needed for distributed problems — observability gives you the answer.</li>
+</ul>
+
+<h3>Bisection that produces observability</h3>
+<p>The reverse is also true: a good bisection result improves observability for next time. After confirming the culprit:</p>
+<ul>
+  <li><strong>Add a metric that would have caught it.</strong> "Connection pool size dropped from 100 to 10" should have triggered an alert.</li>
+  <li><strong>Add a log line at the suspect site.</strong> Future bugs in that area get found faster.</li>
+  <li><strong>Add a regression test.</strong> The repro becomes part of the test suite.</li>
+</ul>
+<p>This is the senior move: every bisection makes future bisections cheaper. Compound interest on debugging.</p>
+
+<h3>The classic mistake</h3>
+<p>Junior engineers see a problem in production and immediately bisect — without checking what observability already shows. The dashboards might already say "memory went from 4 GB to 8 GB at exactly 14:32, three minutes after deploy a3f9c81." That's the answer, in 60 seconds, no bisection needed.</p>
+<p><strong>The rule:</strong> always check observability first, even for 30 seconds. If it gives you the answer, you save an hour. If it doesn't, you've at least primed your bisection with the right symptom signature.</p>
+
+<h3>What "good observability" actually means</h3>
+<p>Most teams over-invest in dashboards and under-invest in <em>queryability</em>. The senior engineer's checklist:</p>
+<ol>
+  <li><strong>Can you find one specific user's behavior in the last hour by their user-ID?</strong> If not, your tracing is weak.</li>
+  <li><strong>Can you query "all errors from service X in the last 5 minutes, grouped by error type"?</strong> If not, your logs aren't structured.</li>
+  <li><strong>Can you see a flame graph for a slow request from production traffic?</strong> If not, you have no production profiler.</li>
+  <li><strong>Do all your metrics have the deploy SHA as a label?</strong> If not, you can't correlate metrics with bisection candidates.</li>
+</ol>
+<p>Each "no" is a multiplicative penalty on every future incident. Each "yes" pays back forever.</p>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>The principal engineer's job isn't to choose between observability and bisection; it's to build a workflow where both work together — and to invest team energy in the gaps that prevent either from working. A team with great observability but terrible commit hygiene can't bisect. A team with great commit hygiene but no observability bisects too often. The masterful teams have both — and use bisection as a confirmation tool, not a primary one.</p>
+</div>
+</template>
+
+<template data-page-title="The Cost of Un-Bisectable Bugs" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">The Cost of Un-Bisectable Bugs (Building the Business Case)</h2>
+<p class="lede">A bug that takes a week to find is not a technical problem — it's a six-figure expense. Principal engineers don't just debug well; they translate debugging difficulty into the language executives understand. This page walks through how to measure the cost of un-bisectable bugs and present the case for investing in the practices that prevent them.</p>
+
+<h3>The straight-line math</h3>
+<p>Take a hypothetical: a senior engineer's fully-loaded cost is $200,000/year, which works out to about $100/hour. A bug that takes 40 hours of investigation costs $4,000 in direct engineering time alone. If three engineers are pulled in, it's $12,000. If the bug also blocks a release, multiply by the value of the delayed feature.</p>
+<p>Now multiply by frequency. A team with 10 hard-to-bisect bugs per quarter costs:</p>
+<pre class="code" data-lang="text" data-title="bug-cost-math.txt">10 bugs/quarter × 40 hours/bug × $100/hour            = $40,000/quarter direct cost
+10 bugs × 2 additional engineers × 16 hours × $100    = $32,000/quarter spillover
+10 bugs × $5,000 opportunity cost (delayed features)  = $50,000/quarter opportunity loss
+
+Total drag per quarter ≈ $122,000
+Annualized ≈ $488,000
+</pre>
+<p>This is a half-million-dollar annual line item that doesn't appear on any spreadsheet because it's distributed across hundreds of "I spent two days on a weird bug" stories.</p>
+
+<h3>The investment proposal</h3>
+<p>To prevent that drag, you'd spend:</p>
+<table class="cmp">
+<tr><th>Investment</th><th>Cost</th><th>Bisection-relevant benefit</th></tr>
+<tr><td>Hermetic test infrastructure</td><td>2 senior-eng months once + 10% ongoing</td><td>Eliminates flake-driven bisection failures</td></tr>
+<tr><td>Build/test parallelization</td><td>1 senior-eng month + CI infra cost ($1k/mo)</td><td>Cuts each bisection round time by 5–10×</td></tr>
+<tr><td>Conventional-commits + commit-lint</td><td>1 week + ongoing review discipline</td><td>Makes every bisection result interpretable</td></tr>
+<tr><td>Structured logging + tracing</td><td>2 senior-eng months</td><td>Halves the bisections you need to do at all</td></tr>
+<tr><td>Versioned migrations + per-test DB</td><td>1 month</td><td>Makes data-shape bugs bisectable</td></tr>
+</table>
+
+<p>Total investment: ~6 senior-eng months over a year = ~$100,000. Saved: ~$488,000/year. <strong>ROI &gt; 4×.</strong></p>
+
+<h3>How to actually pitch this</h3>
+<p>Engineers usually fail at this conversation because they pitch to other engineers, not to leaders. The reframe:</p>
+
+<table class="cmp">
+<tr><th>What an engineer says</th><th>What a leader hears</th><th>What they SHOULD hear</th></tr>
+<tr><td>"Our tests are flaky."</td><td>"Engineers complaining."</td><td>"Our deploys are unreliable; customers see incidents we can't reproduce."</td></tr>
+<tr><td>"We need better observability."</td><td>"Engineers want a new tool."</td><td>"Our mean-time-to-recovery is 4 hours instead of 30 minutes."</td></tr>
+<tr><td>"Bisection is hard."</td><td>"Engineers are slow."</td><td>"Each production incident costs $15,000 more in engineering hours than it should."</td></tr>
+</table>
+
+<p>The translation work isn't dishonest — it's the same problem stated in the language the decision-makers operate in.</p>
+
+<h3>The metrics that prove the investment worked</h3>
+<p>After making the investment, you measure:</p>
+<ul>
+  <li><strong>Mean Time To Diagnosis (MTTD)</strong> — from first alert to "we know what's broken." Bisection moves this number.</li>
+  <li><strong>Mean Time To Recovery (MTTR)</strong> — from first alert to "users are healthy again." Reversible deploys move this.</li>
+  <li><strong>Repro rate</strong> — % of bug reports that can be reproduced within 1 hour. Hermetic tests move this.</li>
+  <li><strong>Bisection success rate</strong> — % of <code>git bisect</code> attempts that converge cleanly. Commit hygiene moves this.</li>
+  <li><strong>Engineer-hours per incident</strong> — total time across all engineers. The big one.</li>
+</ul>
+
+<p>Six months after the investment, the same dashboard with the same metrics tells the leadership team whether the work paid off.</p>
+
+<h3>The hidden cost: morale</h3>
+<p>Engineers who spend three days bisecting a bug they shouldn't have had to bisect leave. Not in protest — in slow attrition. They take jobs at companies whose tooling lets them spend their days building things, not chasing ghosts.</p>
+<p>Engineering org turnover that's "weirdly high" usually traces back to one of three things: comp, management, or a tooling environment that makes good work impossible. The third is the one engineers don't articulate clearly — and the one principal engineers can most directly fix.</p>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>The principal engineer's superpower in this conversation isn't the math — it's the credibility to be heard when proposing investments. That credibility comes from a track record of correct technical calls. Spend years making good calls; the day comes when you can say "we should spend two engineer-months on hermetic tests," and leadership says yes without a slide deck. Get there.</p>
+</div>
+</template>
+
+<template data-page-title="When NOT to Bisect — The Decision Framework" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">When NOT to Bisect — The Decision Framework</h2>
+<p class="lede">Bisection is a sharp tool, and like all sharp tools it has a wrong-use case. This page is the explicit list of situations where bisection is the wrong answer — saving you from spending hours on the technique when another tool would have answered in minutes.</p>
+
+<h3>The seven situations where bisection is wrong</h3>
+
+<h4>1. The bug has always been there</h4>
+<p>Bisection searches for a moment of change. If the bug existed since commit 1, there's no moment to find. The right tool is code review, profiling, or running the bug under a debugger.</p>
+<p><strong>Tell when:</strong> If your "good" endpoint is the first commit in the project, you don't have a good endpoint.</p>
+
+<h4>2. The history is too short</h4>
+<p>Bisecting 5 commits saves you 2 rounds vs. linear. Setup cost for bisection (writing the predicate, configuring the runner) often exceeds those 2 rounds.</p>
+<p><strong>Tell when:</strong> Range is &lt; 10 commits. Just read the diffs.</p>
+
+<h4>3. The predicate is unreliable</h4>
+<p>If the test you'd use as the bisection oracle is flaky, bisection produces wrong answers. Fix the test first; then bisect. (Part I's flake-resistant predicates and Part IX's Bayesian bisection are workarounds, but the deeper answer is "fix the predicate.")</p>
+<p><strong>Tell when:</strong> Running the test 5 times in a row produces mixed results.</p>
+
+<h4>4. The predicate is too expensive</h4>
+<p>If running the test takes 30 minutes, bisecting 1,000 commits takes 5 hours. At 10 minutes per round and 10 rounds, you might be better off forming a hypothesis from a code review instead.</p>
+<p><strong>Tell when:</strong> A single predicate run is &gt; 5 minutes AND there are &lt; 50 commits in the range.</p>
+
+<h4>5. The bug depends on external state you can't control</h4>
+<p>A bug that only appears with specific user data, specific third-party API responses, or specific load can't be bisected if you can't reproduce those conditions per commit. The fix is either to capture the state (record/replay) or characterize the trigger more precisely.</p>
+<p><strong>Tell when:</strong> Your predicate's behavior depends on whether your bisection-running computer has internet, the third-party API is up, or the current date.</p>
+
+<h4>6. Multiple bugs are mixed together</h4>
+<p>Bisection finds <em>one</em> change. If two unrelated changes both contribute to the symptom, bisection lands on the more recent one and confuses you. The fix is to characterize the bug carefully enough that you can distinguish "bug A" from "bug B" in the predicate.</p>
+<p><strong>Tell when:</strong> The "bad" condition has multiple distinct failure signatures that you've been treating as one.</p>
+
+<h4>7. The bug is an emergent property of many small changes</h4>
+<p>Sometimes a system degrades gradually — memory leaks, performance regressions, security drift. Each individual commit "passes" the predicate, but the cumulative effect is bad. Bisection finds nothing useful because no single commit is the culprit.</p>
+<p><strong>Tell when:</strong> Every commit's predicate run passes by a hair; the predicate's measured value (latency, memory) drifts steadily across commits without a step-change.</p>
+
+<h3>The decision matrix</h3>
+
+<pre class="code" data-lang="text" data-title="decision-matrix.txt">     ┌─────────────────────┬─────────────────────────────────┐
+     │ Predicate reliable? │           PREDICATE             │
+     │                     │                                 │
+     │           YES       │   NO (but fixable)              │
+     ├─────────────────────┼─────────────────────────────────┤
+A    │  History ≥ 10 cmts? │   Stop. Fix the predicate first.│
+b    │  Bug well-defined?  │   Hermetic tests, mocks, seeds, │
+o    │  YES → BISECT       │   fake clock — Part I covers it.│
+u    │                     │                                 │
+t    ├─────────────────────┼─────────────────────────────────┤
+     │  History &lt; 10 cmts? │   Multiple bugs mixed?          │
+b    │  Read the diffs by  │   Stop. Characterize the bug    │
+u    │  hand. Done in 10 m.│   more precisely. Then return.  │
+g    │                     │                                 │
+     ├─────────────────────┼─────────────────────────────────┤
+     │  Bug always present?│   Gradual drift?                │
+     │  Profile, debugger, │   Don't bisect — look at metrics│
+     │  code review.       │   over time. Profile.            │
+     └─────────────────────┴─────────────────────────────────┘
+</pre>
+
+<h3>The senior-engineer pre-flight check</h3>
+<p>Before any bisection, answer these four questions. If any answer is "no," reconsider.</p>
+<ol>
+  <li>Do I have a predicate that returns 0 or 1 reliably? <em>(Tested by running it 5 times.)</em></li>
+  <li>Do I have a known-good commit and a known-bad commit? <em>(Confirmed by running the predicate at both.)</em></li>
+  <li>Is the range &gt; 10 commits and &lt; 1 million? <em>(Sweet spot for the technique.)</em></li>
+  <li>Will checking out arbitrary commits in this range cause harm? <em>(Old migrations, deleted files, broken builds.)</em></li>
+</ol>
+
+<p>Five minutes of pre-flight saves hours of bad bisection.</p>
+
+<h3>Alternatives to bisection, by symptom</h3>
+<table class="cmp">
+<tr><th>If you have…</th><th>Try this BEFORE bisection</th></tr>
+<tr><td>A stack trace</td><td>Read the top line; check git blame on that file/line</td></tr>
+<tr><td>Performance regression</td><td>Profile current state; compare hot paths to a known-good profile</td></tr>
+<tr><td>Memory leak</td><td>Heap snapshots at two times; diff for retained types</td></tr>
+<tr><td>"Sometimes broken"</td><td>Run the test 100× in a tight loop; collect the distribution of outcomes</td></tr>
+<tr><td>"Broke after deploy"</td><td>Roll back the deploy first. Then investigate from a calm state.</td></tr>
+<tr><td>"Working on my laptop, broken in prod"</td><td>Diff environments: Node version, env vars, OS, package versions</td></tr>
+</table>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>Bisection is the right answer about 30% of the time, the wrong-but-functional answer another 30%, and the wrong answer that wastes a day the remaining 40%. The principal engineer's skill is the 5-second pre-flight check that puts you in the right category. The cost of pausing to evaluate is tiny; the cost of starting a 6-hour bisection on a bug that observability would have solved in 30 seconds is enormous.</p>
+</div>
+</template>
+
+<template data-page-title="Mentoring Debugging Skill" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Mentoring Debugging Skill on Your Team</h2>
+<p class="lede">You can debug. The question that defines L7+ is: <em>can you raise the debugging skill of your whole team?</em> An engineer who solves one hard bug saves a week. An engineer who teaches ten teammates to solve hard bugs saves a year. This page is the playbook for the multiplier role.</p>
+
+<h3>The mentoring trap</h3>
+<p>The wrong way to mentor debugging: take over the bug yourself. The junior watches you fix it, learns nothing, and the same kind of bug stops them again next week.</p>
+<p>The right way: ask questions until they fix it themselves. Even when this takes longer in the moment.</p>
+
+<h3>The questions that teach</h3>
+<table class="cmp">
+<tr><th>Don't say</th><th>Say instead</th></tr>
+<tr><td>"Try restarting the server."</td><td>"What's your hypothesis about why this isn't working?"</td></tr>
+<tr><td>"It's probably a null check."</td><td>"What does the error message literally say?"</td></tr>
+<tr><td>"Read this stack trace."</td><td>"Walk me through this stack trace, line by line."</td></tr>
+<tr><td>"Use the debugger."</td><td>"How could you see the value of <code>order</code> at line 42?"</td></tr>
+<tr><td>"I'll fix it; just watch."</td><td>"You drive; I'll navigate."</td></tr>
+<tr><td>"You should've bisected."</td><td>"Looking back, when did you realize this was a regression?"</td></tr>
+</table>
+
+<p>Every question forces the junior to think. Every answer you give for them is a chance they didn't get to grow.</p>
+
+<h3>The retrospective ritual</h3>
+<p>After every hard bug, do a 15-minute retrospective with the engineer who fixed it. Three questions:</p>
+<ol>
+  <li><strong>What was the first hypothesis? Was it correct?</strong> If not, what made it wrong?</li>
+  <li><strong>What was the moment you knew the actual cause?</strong> What tool or thought got you there?</li>
+  <li><strong>Looking back, what could have led you there faster?</strong></li>
+</ol>
+<p>The third question is where growth happens. Often the answer is "I should have run the test more times" or "I should have looked at the metrics dashboard first" — concrete, specific habits the engineer can build.</p>
+
+<h3>The teaching escalation ladder</h3>
+<p>When a junior is stuck:</p>
+<ol>
+  <li><strong>5 minutes:</strong> Let them think.</li>
+  <li><strong>15 minutes:</strong> Ask "What's your current hypothesis?" Let them answer.</li>
+  <li><strong>30 minutes:</strong> Pair with them. Drive/navigate. They type; you ask questions.</li>
+  <li><strong>60 minutes:</strong> Suggest a specific tool ("have you looked at the trace for this request?")</li>
+  <li><strong>90 minutes:</strong> Give the answer (or the next step toward it).</li>
+</ol>
+<p>The default failure mode is collapsing this ladder — jumping to step 5 within 5 minutes. The junior never builds the muscle of being stuck and finding their way out. Stuck-ness is the precondition for skill growth.</p>
+
+<h3>Curriculum for a debugging-skill program</h3>
+<p>If you're starting a deliberate debugging-skill program for your team:</p>
+
+<table class="cmp">
+<tr><th>Week</th><th>Topic</th><th>Exercise</th></tr>
+<tr><td>1</td><td>Reading error messages and stack traces</td><td>10 real production stack traces; walk through each</td></tr>
+<tr><td>2</td><td>The scientific method</td><td>Pair-debug a real bug; require explicit hypothesis logging</td></tr>
+<tr><td>3</td><td>Writing minimal repros</td><td>Take a 200-line failing test; shrink to under 20 lines</td></tr>
+<tr><td>4</td><td>Bisection basics</td><td>Run <code>git bisect</code> on a real regression with a known answer</td></tr>
+<tr><td>5</td><td>Automated bisection</td><td>Write a predicate script for a real bug; run <code>git bisect run</code></td></tr>
+<tr><td>6</td><td>Observability</td><td>Find a bug using only metrics + logs, no code reading</td></tr>
+<tr><td>7</td><td>Profiling</td><td>Profile a slow function; identify and fix the hot path</td></tr>
+<tr><td>8</td><td>Incident response</td><td>Run a "game day" — simulate an outage, practice the workflow</td></tr>
+</table>
+
+<p>Eight weeks. Two hours per week. By the end, your team's debugging baseline has visibly moved.</p>
+
+<h3>The senior engineer's own growth signal</h3>
+<p>You'll know you're succeeding when you stop being the person called for every weird bug — because your teammates are solving them themselves. This feels strange. It's the goal. The signal that you've succeeded as a mentor is that you're <em>less central to the team's daily operations</em>, freeing you to do the architectural work only you can do.</p>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>At the principal level, your job changes from "be the best engineer in the room" to "make everyone in the room better." Mentoring is not a side activity — it's the multiplier that makes you worth what the company pays you. The technical chops got you here; the teaching is what keeps you valuable for the next decade. Take it seriously. Block time on your calendar for it. Tell your manager it's a goal. The compounding return — over years, across a whole org — is the largest source of impact you have.</p>
+</div>
+</template>
+
+<template data-page-title="Building a Culture of Reproducibility" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Building a Culture of Reproducibility</h2>
+<p class="lede">Reproducibility — "the same input always produces the same output" — is the engineering value most strongly correlated with debuggability. A team that defaults to reproducible everything bisects easily, debugs fast, and ships confidently. A team that doesn't fights ghosts. This page is about how to shift the culture, not just the tooling.</p>
+
+<h3>What reproducibility actually means in practice</h3>
+<p>The same five things, applied across every layer of the stack:</p>
+<ol>
+  <li><strong>Same source code</strong> + same dependencies → same artifact (bitwise identical).</li>
+  <li><strong>Same artifact</strong> + same input → same output (every time, on every machine).</li>
+  <li><strong>Same test</strong> + same code + same data → same pass/fail.</li>
+  <li><strong>Same deploy</strong> + same config → same running system.</li>
+  <li><strong>Same bug report</strong> + same setup → same reproduction.</li>
+</ol>
+<p>Each is a technical practice, but each is also a cultural one — "we hold the line on this."</p>
+
+<h3>The five practices to enforce</h3>
+
+<h4>1. Lockfiles, always</h4>
+<p>Every project commits <code>pnpm-lock.yaml</code> (or equivalent). CI uses <code>pnpm install --frozen-lockfile</code>. No exceptions. The culture is: "we install the same dependencies our teammate installed."</p>
+
+<h4>2. Hermetic tests, always</h4>
+<p>Every test is independent. No test depends on the order it runs in, the time of day, the contents of /tmp, or whether another test has populated a database. The culture is: "if it breaks because it ran after test X, that's a bug in your test."</p>
+
+<h4>3. Pinned environments</h4>
+<p><code>.nvmrc</code>, <code>packageManager</code>, container base image tags pinned by SHA, OS versions documented. The culture is: "the version that fixed it last week is the version we run today."</p>
+
+<h4>4. Versioned everything that has version</h4>
+<p>Code, data schemas, API contracts, machine images, infrastructure, secrets metadata. The culture is: "if we can't roll back to last Tuesday, we don't deploy on Wednesday."</p>
+
+<h4>5. Repros are deliverables</h4>
+<p>Every bug report includes a repro. Every fix PR includes a regression test. The culture is: "we don't ship fixes without proof they don't regress."</p>
+
+<h3>The forcing functions</h3>
+<p>Culture follows what's mechanically enforced. The senior engineer's job is to design the mechanical enforcements that bend the team toward reproducibility:</p>
+
+<table class="cmp">
+<tr><th>Forcing function</th><th>Cultural shift it produces</th></tr>
+<tr><td>CI fails on flaky test detection (re-running 3× and inconsistent results = fail)</td><td>"Flakes are bugs; we fix them, we don't ignore them."</td></tr>
+<tr><td>Pre-merge: <code>oasdiff</code> blocks breaking API changes</td><td>"Spec is the contract; we evolve it deliberately."</td></tr>
+<tr><td>Renovate/Dependabot enforces lockfile updates only via PR</td><td>"Dep updates are reviewed, not snuck in."</td></tr>
+<tr><td>Linting refuses non-reversible migrations</td><td>"Every schema change can roll back."</td></tr>
+<tr><td>Templates require a repro section in bug reports</td><td>"No repro, no work-on-it."</td></tr>
+</table>
+
+<h3>The opposing forces</h3>
+<p>Reproducibility costs effort. You'll meet resistance:</p>
+<ul>
+  <li><strong>"It's just a small fix."</strong> Small fixes that bypass reproducibility checks compound into the codebase that future-you can't bisect.</li>
+  <li><strong>"We don't have time to write a regression test."</strong> A bug without a regression test is a bug that will return.</li>
+  <li><strong>"The build is slow because of all this."</strong> Yes — and we'll invest in CI speed, not in cutting corners.</li>
+  <li><strong>"The CI is too strict."</strong> Or, the CI is doing exactly what it should — finding problems before customers do.</li>
+</ul>
+<p>The principal engineer's role is to consistently win these arguments, in conversations across years, until "we hold the line" stops being an argument and starts being a default.</p>
+
+<h3>Measuring the culture shift</h3>
+<table class="cmp">
+<tr><th>Metric</th><th>Direction it should move</th></tr>
+<tr><td>% of bugs with a repro before investigation starts</td><td>Up — eventually 95%+</td></tr>
+<tr><td>% of fixes with a regression test</td><td>Up — eventually 90%+</td></tr>
+<tr><td>Median bisection time</td><td>Down</td></tr>
+<tr><td>"Works on my machine" tickets per month</td><td>Down to near zero</td></tr>
+<tr><td>% of deploys that are reversible in &lt; 5 min</td><td>Up — eventually 100%</td></tr>
+<tr><td>Number of flaky tests in CI</td><td>Track openly; drive to zero</td></tr>
+</table>
+
+<h3>The hardest culture to shift: "fix forward only"</h3>
+<p>Teams without a rollback culture often have an emotional aversion to reverting — it feels like admitting defeat. The senior move: reframe reverting as a routine, blameless operation. "Roll back, then investigate" should be muscle memory, not a debate. The fastest companies in incident response have done this; the slow ones still negotiate every revert.</p>
+
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>Culture is what the team does without thinking. Building a reproducibility culture is the multi-year project of making the right thing be the default thing. You don't accomplish it with one big initiative; you accomplish it with small consistent insistence over a hundred PRs and incidents. The team that ends up with a reproducibility culture is the team where the principal engineer never stopped advocating for it, in small ways, every single week. That's the actual job.</p>
+</div>
+</template>
+
+<template data-page-title="Postmortems and Blameless Culture" data-part="XI — Principal Engineering">
+<span class="badge">Part XI · Principal Engineering</span>
+<h2 class="page-title">Postmortems, Blameless Culture, and Continuous Improvement</h2>
+<p class="lede">Every significant bug or outage should produce a postmortem. Not as ceremony — as the mechanism that turns one team's painful lesson into permanent organizational learning. Done well, postmortems compound bisection-and-debugging skill across years. Done poorly, they're theater that demoralizes the team. This page is the practitioner's guide.</p>
+
+<h3>What a postmortem is for</h3>
+<table class="cmp">
+<tr><th>It is for…</th><th>It is NOT for…</th></tr>
+<tr><td>Describing what happened, with timestamps</td><td>Assigning individual fault</td></tr>
+<tr><td>Capturing the bisection log and root-cause analysis</td><td>"Whose PR broke this?"</td></tr>
+<tr><td>Listing what would have prevented it</td><td>Bullet-pointing every conceivable improvement (nobody acts on a 47-item list)</td></tr>
+<tr><td>Generating 3–5 high-priority action items, each owned and dated</td><td>Discussing whether the on-call should have responded faster</td></tr>
+<tr><td>Sharing the lessons across teams</td><td>Hiding the document from anyone who wasn't there</td></tr>
+</table>
+
+<h3>The postmortem template</h3>
+
+<pre class="code" data-lang="markdown" data-title="postmortem-template.md"># Incident: [one-line description]
+
+**Date:** YYYY-MM-DD
+**Duration:** XX minutes user-impact
+**Severity:** SEV-1/2/3
+**Authors:** @ic-during-incident, @on-call
+
+## Summary
+2–3 sentences a non-engineer can understand. What broke, who was affected, when it ended.
+
+## Timeline (UTC)
+- HH:MM — Alert fires.
+- HH:MM — On-call paged.
+- HH:MM — Hypothesis 1: ... (status: confirmed/rejected).
+- HH:MM — Bisection started across deploys X..Y.
+- HH:MM — Culprit identified: commit `a3f9c81`.
+- HH:MM — Rollback initiated.
+- HH:MM — Metrics confirm recovery.
+- HH:MM — Postmortem started.
+
+## What happened
+Plain-English narrative. What the code/system did, why that produced the symptom.
+
+## Why it happened (root cause)
+The *contributing factors* — usually more than one. A bad commit AND a missing test AND a slow alert.
+
+## Why our defenses didn't catch it
+- The test that should have caught this was missing because: ...
+- The metric that should have alerted earlier was: ...
+- The code review on PR #X missed it because: ...
+
+## What we're doing about it (action items)
+| # | Action | Owner | Due | Status |
+|---|--------|-------|-----|--------|
+| 1 | Add regression test for X | @alice | YYYY-MM-DD | Open |
+| 2 | Add alert on metric Y | @bob | YYYY-MM-DD | Open |
+| 3 | Document deploy procedure Z | @carol | YYYY-MM-DD | Open |
+
+## What went well
+Yes, every postmortem has a "what went well" section. The team needs to learn from successes too.
+
+## Lessons learned (org-wide)
+What other teams should know. This is the section that compounds organizational value.
+
+## Appendix: bisection log
+[paste the actual bisection commands and output]
+</pre>
+
+<h3>The discipline of "blameless"</h3>
+<p>Blameless does NOT mean "no accountability." It means the postmortem focuses on <em>system</em> failures, not <em>human</em> failures. The premise: any engineer in the same situation would have made the same mistake. So the fix is to change the system so the mistake stops being possible.</p>
+
+<p>Examples:</p>
+<table class="cmp">
+<tr><th>Blame-y framing (don't)</th><th>Blameless framing (do)</th></tr>
+<tr><td>"Alice pushed an untested change."</td><td>"The CI didn't require tests for this kind of change; we'll add the check."</td></tr>
+<tr><td>"Bob should have noticed the alert."</td><td>"The alert was buried in a noisy channel; we'll route this severity to a phone page."</td></tr>
+<tr><td>"The on-call was too slow."</td><td>"Our runbook for this scenario was outdated; we'll add a tabletop drill quarterly."</td></tr>
+</table>
+
+<h3>The most important action item: the test that would have caught it</h3>
+<p>For nearly every bug, there's a test that would have caught it. After the postmortem, write that test. Add it to the suite. Now the bug class is permanently dead.</p>
+<p>This is the cheapest action item that compounds the most: every regression test you add prevents future bisections of that same bug class. After three years, your test suite is the institutional memory of every painful bug your team ever shipped.</p>
+
+<h3>What kills postmortem culture</h3>
+<ul>
+  <li><strong>Action items that nobody owns.</strong> They linger. Trust in postmortems erodes.</li>
+  <li><strong>Postmortems that are never re-read.</strong> The same bug recurs because nobody remembered the previous one.</li>
+  <li><strong>Postmortems written by the wrong people.</strong> If only the IC writes it, only the IC learns.</li>
+  <li><strong>Postmortems treated as punishment.</strong> Engineers hide bugs to avoid the meeting.</li>
+  <li><strong>Postmortems for every tiny thing.</strong> Fatigue sets in. Save them for incidents that genuinely surprised the team.</li>
+</ul>
+
+<h3>The senior engineer's postmortem habits</h3>
+<ol>
+  <li>Volunteer to facilitate hard ones. Modeling the right tone matters.</li>
+  <li>Read postmortems from other teams. You learn what bug shapes exist that you haven't met.</li>
+  <li>When a postmortem action lands on your plate, ship it. Visibly. By the date.</li>
+  <li>Quote past postmortems in design reviews. "Last year we hit X; this design protects against it."</li>
+  <li>Run a quarterly "postmortem of postmortems" — what patterns recur? What's the next systemic investment?</li>
+</ol>
+
+<h3>The relationship to bisection</h3>
+<p>Every good bisection produces a great postmortem appendix. The bisection log — what was tested, what was eliminated, what was confirmed — is the most credible evidence of what actually went wrong. Engineers reading a postmortem six months later trust the bisection log more than the prose narrative. Make it the appendix; refer to it from the timeline.</p>
+
+<div class="callout good">
+<div class="callout-title">The closing principle</div>
+<p>An organization's debugging maturity is measured by what happens <em>after</em> bugs are fixed. Junior teams celebrate the fix and move on. Senior teams capture the lesson. Mature organizations operationalize the lesson into prevention. The progression from "we found it" to "we fixed it" to "we documented it" to "we made it impossible" is the arc of engineering excellence. Bisection is one tool on that path; postmortems are the mechanism that turns every tool's win into a permanent improvement. <strong>This is where principal-engineer impact lives — not in any one fix, but in the slope of the team's improvement over years.</strong></p>
+</div>
+<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how.</p>
 </template>
 
 <!-- ============================================================
