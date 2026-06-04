@@ -1,0 +1,32 @@
+{
+  "name": "bisection-debugging",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A principal-engineer-level curriculum on bisection debugging. Single-file HTML, all code blocks extract to runnable scripts under scripts/.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "escape":    "node fix-html-escaping.mjs",
+    "extract":   "node extract-scripts.mjs",
+    "verify":    "./verify-scripts.sh",
+
+    "prebuild":  "npm run escape",
+    "build":     "npm run extract",
+    "postbuild": "npm run verify",
+
+    "pretest":   "npm run extract",
+    "test":      "npm run verify",
+
+    "dev":       "npx --yes serve@14 -l 8080 .",
+    "start":     "npm run dev",
+
+    "clean":     "rm -rf scripts/foundations scripts/git-bisect scripts/file-bisect scripts/dep-build scripts/test-perf scripts/bash scripts/zsh scripts/ci scripts/advanced",
+
+    "check":     "npm run build",
+    "prepush":   "npm run check",
+
+    "prepare":   "node -e \"console.log('Ready. \\\"npm run dev\\\" serves the curriculum at http://localhost:8080. \\\"npm run build\\\" escapes HTML, extracts every code block to scripts/, and syntax-checks all of them.')\""
+  }
+}
