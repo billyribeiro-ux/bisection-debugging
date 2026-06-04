@@ -3123,6 +3123,1077 @@ ddmin "${FLAGS[@]}"
 <p>That last script is the famous Delta Debugging algorithm (Zeller, 1999), which generalizes bisection to non-monotonic, multi-cause failures. Keep it in your back pocket for the day plain bisection refuses to work.</p>
 </template>
 
+<template data-page-title="Bash 5 Features Every Predicate Should Use" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Bash 5+ Features Every Bisection Predicate Should Use</h2>
+<p class="lede">Most bash bisection scripts you'll inherit were written for bash 4 or even bash 3. They work — but they leave on the table a dozen Bash 5 features that make predicates faster, safer, and dramatically more readable. This page catalogs the ones that matter for bisection.</p>
+
+<h3>Check your bash version first</h3>
+<pre class="code" data-lang="shell" data-title="bash-version-guard.sh">#!/usr/bin/env bash
+# Required at the top of any predicate that uses bash 5 features.
+if (( BASH_VERSINFO[0] &lt; 5 )); then
+  echo "This predicate requires bash 5+; you have ${BASH_VERSION}" &gt;&amp;2
+  exit 125   # untestable in this environment
+fi
+</pre>
+<p>macOS still ships bash 3.2 by default. Linux distros vary. Always assert.</p>
+
+<h3>Feature 1 — Associative arrays for memoization</h3>
+<pre class="code" data-lang="shell" data-title="bash5-memo.sh">#!/usr/bin/env bash
+# Memoize predicate results across rounds. The same commit may be tested
+# multiple times during a bisection (when good/bad endpoints overlap with
+# a previous round). Cache results to skip the predicate.
+declare -A RESULT_CACHE
+
+check_commit() {
+  local sha="$1"
+  if [[ -n "${RESULT_CACHE[$sha]:-}" ]]; then
+    echo "cache hit: $sha → ${RESULT_CACHE[$sha]}"
+    return "${RESULT_CACHE[$sha]}"
+  fi
+  # ... expensive predicate work ...
+  pnpm test &gt;/dev/null 2&gt;&amp;1
+  local rc=$?
+  RESULT_CACHE[$sha]=$rc
+  return $rc
+}
+</pre>
+<p>The hash lookup is O(1). For a bisection with overlapping ranges (rare but real — manual mid-bisection corrections, <code>git bisect skip</code> retries) this saves real time.</p>
+
+<h3>Feature 2 — Namerefs for parameterizing helper functions</h3>
+<pre class="code" data-lang="shell" data-title="bash5-nameref.sh">#!/usr/bin/env bash
+# A helper that accumulates measurements into a caller-provided array.
+# Without namerefs, you'd have to use globals or pass-by-string.
+
+measure_n_times() {
+  declare -n out=$1     # nameref to caller's array
+  local cmd="$2"
+  local n="$3"
+  for ((i=0; i&lt;n; i++)); do
+    local t
+    t=$( { time -p sh -c "$cmd" ; } 2&gt;&amp;1 | awk '/real/ {print $2}' )
+    out+=("$t")
+  done
+}
+
+declare -a timings
+measure_n_times timings "curl -sf http://localhost:3000/health" 10
+echo "Got ${#timings[@]} measurements: ${timings[*]}"
+</pre>
+
+<h3>Feature 3 — <code>mapfile</code>/<code>readarray</code> instead of while-read</h3>
+<pre class="code" data-lang="shell" data-title="bash5-mapfile.sh">#!/usr/bin/env bash
+# Slow, classic approach:
+files=()
+while IFS= read -r line; do files+=("$line"); done &lt; suspect-files.txt
+
+# Faster + safer (no IFS gotchas):
+mapfile -t files &lt; suspect-files.txt
+
+# With a callback to process each line as it arrives (streaming):
+mapfile -t -c 100 -C 'show_progress' files &lt; huge-list.txt
+</pre>
+<p>For a 100k-line input, <code>mapfile</code> is ~10× faster than the loop, and it doesn't trip on lines that look like options (<code>-n</code>) or contain backslashes.</p>
+
+<h3>Feature 4 — <code>EPOCHSECONDS</code> and <code>EPOCHREALTIME</code></h3>
+<pre class="code" data-lang="shell" data-title="bash5-epoch.sh">#!/usr/bin/env bash
+# No more `date +%s` subshells in tight loops.
+start=$EPOCHREALTIME          # seconds.microseconds since epoch, no fork
+# ... do work ...
+end=$EPOCHREALTIME
+echo "elapsed: $(awk -v s="$start" -v e="$end" 'BEGIN { print e - s }') s"
+</pre>
+<p><code>$(date +%s)</code> forks a subshell — about 1ms overhead per call. <code>$EPOCHREALTIME</code> is a builtin: zero fork cost. In a tight measurement loop this matters.</p>
+
+<h3>Feature 5 — <code>wait -n</code> and <code>wait -p</code> for parallel rounds</h3>
+<pre class="code" data-lang="shell" data-title="bash5-wait-n.sh">#!/usr/bin/env bash
+# Spawn 4 parallel predicate workers; collect results as each finishes.
+declare -A WORKERS         # pid → commit-sha
+for sha in "$@"; do
+  ( predicate-for "$sha" ) &amp;
+  WORKERS[$!]="$sha"
+done
+
+while (( ${#WORKERS[@]} &gt; 0 )); do
+  # wait -n: blocks until ANY child finishes. wait -p: captures the pid.
+  if wait -n -p finished_pid; then
+    rc=$?
+    sha="${WORKERS[$finished_pid]}"
+    echo "$sha → $rc"
+    unset 'WORKERS[$finished_pid]'
+  fi
+done
+</pre>
+<p>Before bash 5.1, you'd have to <code>wait $pid</code> in order or poll with <code>kill -0</code>. <code>wait -n -p</code> is the canonical "give me whichever finishes first" primitive — the foundation of any parallel bisector.</p>
+
+<h3>Feature 6 — Extended <code>${var@op}</code> expansions</h3>
+<pre class="code" data-lang="shell" data-title="bash5-expansion-ops.sh">#!/usr/bin/env bash
+declare -A config=([port]=3000 [host]=localhost)
+
+# @Q — quote for safe re-evaluation
+declare -p config              # → declare -A config=(["port"]="3000"...)
+echo "${config[@]@Q}"          # quoted form, safe for eval
+
+# @A — re-emit the assignment statement (for serialization)
+echo "${config[@]@A}"          # → ([port]="3000"...) suitable for source
+
+# @P — expand prompt sequences (for headers in logs)
+PS4_PROMPT='+ \D{%H:%M:%S} ${BASH_SOURCE}:${LINENO}: '
+echo "${PS4_PROMPT@P}"
+
+# @U / @L — upper / lowercase
+sha="$(git rev-parse HEAD)"
+echo "${sha@U}"                # uppercase variant — useful for case-insensitive matching
+</pre>
+
+<h3>Feature 7 — Process substitution with arrays</h3>
+<pre class="code" data-lang="shell" data-title="bash5-procsub.sh">#!/usr/bin/env bash
+# Read two streams in parallel and pair their outputs — useful for
+# diff-style observation (current vs baseline).
+while IFS= read -r baseline_line &amp;&amp; IFS= read -r current_line &lt;&amp;3; do
+  if [[ "$baseline_line" != "$current_line" ]]; then
+    echo "DIFF: $baseline_line | $current_line"
+  fi
+done &lt; &lt;(produce-baseline) 3&lt; &lt;(produce-current)
+</pre>
+
+<h3>Feature 8 — <code>BASH_REMATCH</code> for safe pattern parsing</h3>
+<pre class="code" data-lang="shell" data-title="bash5-rematch.sh">#!/usr/bin/env bash
+# Parse "p99=43.7ms fails=2/20" without invoking awk/sed.
+line="p99=43.7ms fails=2/20"
+if [[ "$line" =~ ^p99=([0-9.]+)ms\ fails=([0-9]+)/([0-9]+)$ ]]; then
+  p99="${BASH_REMATCH[1]}"
+  fails="${BASH_REMATCH[2]}"
+  total="${BASH_REMATCH[3]}"
+  echo "parsed: p99=$p99 fails=$fails/$total"
+fi
+</pre>
+<p>Zero subshell overhead. The captured groups are available in <code>${BASH_REMATCH[@]}</code> indexed from 1.</p>
+
+<h3>Feature 9 — <code>$SRANDOM</code> for non-predictable seeding</h3>
+<pre class="code" data-lang="shell" data-title="bash5-srandom.sh"># $RANDOM uses a weak LCG and is predictable. $SRANDOM (bash 5.1+) draws
+# from the OS entropy pool — useful for randomized test inputs that you
+# want truly randomized between bisection rounds.
+PORT=$((SRANDOM % 30000 + 30000))   # 30000-59999
+echo "random port: $PORT"
+</pre>
+
+<h3>Feature 10 — Coprocesses for long-lived helpers</h3>
+<pre class="code" data-lang="shell" data-title="bash5-coproc.sh">#!/usr/bin/env bash
+# Some predicates spin up a DB, run dozens of queries, tear down. The fork
+# cost dominates. Use a coprocess: start the helper once, pipe queries to it.
+
+coproc PSQL { psql -A -t -d testdb 2&gt;/dev/null; }
+trap 'kill "$PSQL_PID" 2&gt;/dev/null' EXIT
+
+ask() {
+  echo "$1" &gt;&amp; "${PSQL[1]}"
+  IFS= read -r -u "${PSQL[0]}" answer
+  echo "$answer"
+}
+
+for sha in "$@"; do
+  count=$(ask "SELECT COUNT(*) FROM users WHERE created_sha = '$sha';")
+  echo "$sha → $count users"
+done
+</pre>
+<p>One psql process answers all the queries. The setup cost (connection establishment, ~50ms) is paid once instead of N times.</p>
+
+<h3>The Bash 5 starter kit</h3>
+<pre class="code" data-lang="shell" data-title="bash5-starter.sh">#!/usr/bin/env bash
+# Drop-in header for any modern bash predicate.
+(( BASH_VERSINFO[0] &gt;= 5 )) || { echo "bash 5+ required"; exit 125; }
+shopt -s nullglob extglob globstar lastpipe inherit_errexit
+set -uo pipefail
+
+# Useful timestamps without subshells
+start_time=$EPOCHREALTIME
+
+# Trap &amp; cleanup before anything that needs cleanup
+declare -a CHILDREN=()
+cleanup() {
+  for pid in "${CHILDREN[@]}"; do kill "$pid" 2&gt;/dev/null || true; done
+}
+trap cleanup EXIT INT TERM
+</pre>
+
+<div class="callout good">
+<div class="callout-title">When to actually drop bash for awk/python</div>
+<p>Even with Bash 5, certain workloads belong elsewhere. Heavy numeric processing (computing p99, statistical aggregation) is 100× faster in awk. JSON manipulation is one-line in <code>jq</code> and four-page in bash. The senior judgment is recognizing the boundary. Bash is excellent for orchestration; let it be excellent at orchestration and outsource everything else.</p>
+</div>
+</template>
+
+<template data-page-title="Error Handling Discipline in Predicates" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Error Handling Discipline in Bash Predicates</h2>
+<p class="lede">Predicates die in subtle ways. <code>set -e</code> doesn't always do what you think. Pipe exit codes get swallowed. Cleanup doesn't fire when subshells crash. This page is the discipline that separates predicates that work locally and fail under <code>git bisect run</code> from predicates that work reliably everywhere.</p>
+
+<h3>The <code>set -e</code> problem nobody warns juniors about</h3>
+<p><code>set -e</code> aborts on the first command that exits non-zero. Seems obvious. In practice, it's full of exceptions that bite you:</p>
+
+<pre class="code" data-lang="shell" data-title="set-e-traps.sh">#!/usr/bin/env bash
+set -e
+
+# Trap 1: commands in `if`/`while`/`||`/`&amp;&amp;` chains don't trigger set -e.
+if some_command; then echo ok; fi    # set -e is suspended here
+
+# Trap 2: pipe commands don't trigger unless pipefail is also on.
+some_failing_command | tee log       # exits 0 if tee succeeds — bug!
+
+# Trap 3: functions called as conditions suspend set -e for their entire body.
+check() { some_command_that_fails; return 0; }
+if check; then echo "always reached" ; fi
+
+# Trap 4: subshells exit but the parent script continues.
+( something_critical_failed ) ; echo "still running"
+</pre>
+
+<h3>The senior choice: <code>set -uo pipefail</code>, NOT <code>-e</code></h3>
+<pre class="code" data-lang="shell" data-title="recommended-flags.sh">#!/usr/bin/env bash
+set -uo pipefail        # -u: error on unset var; -o pipefail: pipe error propagates
+# NOT -e: handle errors explicitly so failure modes are visible
+</pre>
+<p>Why explicit beats <code>set -e</code>: you write <code>cmd || exit 125</code> exactly where you mean it. A reader sees what exit code maps to what condition. With <code>set -e</code>, every command is implicitly an exit point — and the meaning of "exit point" varies by context.</p>
+
+<h3>The <code>$PIPESTATUS</code> array</h3>
+<pre class="code" data-lang="shell" data-title="pipestatus.sh">#!/usr/bin/env bash
+set -uo pipefail
+some_setup_command | tee setup.log | grep -q READY
+rc_setup="${PIPESTATUS[0]}"   # exit code of some_setup_command
+rc_tee="${PIPESTATUS[1]}"     # exit code of tee
+rc_grep="${PIPESTATUS[2]}"    # exit code of grep
+
+if (( rc_setup != 0 )); then
+  echo "setup failed (rc=$rc_setup) — skipping commit"
+  exit 125
+fi
+if (( rc_grep != 0 )); then
+  echo "setup never reached READY state"
+  exit 1
+fi
+</pre>
+<p><code>${PIPESTATUS[@]}</code> captures every stage's exit code. Without it, you can only see the last one. Critical when each pipe stage means different things.</p>
+
+<h3>The <code>ERR</code> trap for centralized failure reporting</h3>
+<pre class="code" data-lang="shell" data-title="err-trap.sh">#!/usr/bin/env bash
+set -uEo pipefail   # -E: ERR traps inherit into functions and subshells
+
+report_failure() {
+  local exit_code=$?
+  local line=$BASH_LINENO
+  local cmd=$BASH_COMMAND
+  echo "PREDICATE FAILURE at line $line"
+  echo "  command: $cmd"
+  echo "  exit code: $exit_code"
+  echo "  PIPESTATUS: ${PIPESTATUS[*]:-}"
+  echo "  callstack:"
+  local i=0
+  while caller $i; do ((i++)); done
+}
+
+trap report_failure ERR
+# ... rest of predicate ...
+</pre>
+<p>Now every unexpected failure gets a structured report — file, line, command, exit code, call stack. When a bisection's predicate misbehaves across 10 rounds, the per-round failure reports tell you immediately whether you have one failure mode or ten.</p>
+
+<h3>Cleanup discipline — the trap chain</h3>
+<pre class="code" data-lang="shell" data-title="trap-chain.sh">#!/usr/bin/env bash
+# Multiple cleanup steps. Don't replace traps — chain them.
+
+cleanup_db()     { dropdb "$TMPDB" 2&gt;/dev/null || true; }
+cleanup_server() { [ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null; }
+cleanup_files()  { rm -rf "$SCRATCH"; }
+
+# Compose them with a master trap. NOT three separate `trap … EXIT` calls,
+# because each `trap` REPLACES the previous one for that signal.
+cleanup_all() {
+  cleanup_server   # in reverse order of setup
+  cleanup_db
+  cleanup_files
+}
+trap cleanup_all EXIT INT TERM
+
+# Setup steps (in the order they depend on each other)
+SCRATCH=$(mktemp -d)
+TMPDB=$(mktemp -u | sed 's|/.*/||')
+createdb "$TMPDB"
+SERVER_PID=$( pnpm start &gt;/dev/null 2&gt;&amp;1 &amp; echo $! )
+</pre>
+<p>The cleanup runs in reverse setup order: the database depends on the temp directory; the server depends on the database. Tear down opposite of build.</p>
+
+<h3>Subshell exit codes — the forgotten case</h3>
+<pre class="code" data-lang="shell" data-title="subshell-rc.sh">#!/usr/bin/env bash
+set -uo pipefail
+
+# Subshells exit silently by default. The parent shell continues.
+( some_command_in_subshell )
+echo "rc was $?"   # captures the subshell exit code
+
+# When you need the subshell's failure to abort the script:
+( some_command_in_subshell ) || exit 1
+
+# Or via `inherit_errexit` (bash 4.4+) which makes set -e propagate into subshells.
+shopt -s inherit_errexit
+</pre>
+
+<h3>The <code>shopt</code> options worth knowing</h3>
+<table class="cmp">
+<tr><th>Option</th><th>What it does</th><th>Why predicate authors want it</th></tr>
+<tr><td><code>nullglob</code></td><td>Empty globs expand to nothing (not the literal pattern)</td><td>Loops over <code>*.log</code> don't iterate over the string "*.log" when no logs exist</td></tr>
+<tr><td><code>failglob</code></td><td>Empty glob is an error</td><td>Catch typos at the pattern level</td></tr>
+<tr><td><code>extglob</code></td><td>Extended pattern matching (e.g. <code>!(*.tmp)</code>)</td><td>Excluding files by pattern in-shell</td></tr>
+<tr><td><code>globstar</code></td><td><code>**</code> matches recursively</td><td>Finding files at any depth</td></tr>
+<tr><td><code>lastpipe</code></td><td>Last pipe segment runs in current shell (vars persist)</td><td>Capturing pipe output into shell vars without subshell loss</td></tr>
+<tr><td><code>inherit_errexit</code></td><td>set -e propagates into subshells</td><td>Consistent error behavior across nesting</td></tr>
+<tr><td><code>compat42</code></td><td>Bash 4.2 compatibility mode</td><td>Avoid relying on bash 5 features when supporting older bash</td></tr>
+</table>
+
+<h3>The predicate error-handling template</h3>
+<pre class="code" data-lang="shell" data-title="error-handling-template.sh">#!/usr/bin/env bash
+# Drop-in error handling for any bash predicate.
+set -uEo pipefail
+shopt -s nullglob extglob lastpipe inherit_errexit
+(( BASH_VERSINFO[0] &gt;= 5 )) || { echo "bash 5+ required"; exit 125; }
+
+err() {
+  local rc=$? line=$BASH_LINENO[0] cmd=$BASH_COMMAND
+  printf 'PREDICATE ERROR\n  file: %s\n  line: %s\n  cmd:  %s\n  rc:   %s\n  PIPESTATUS: %s\n' \
+    "$BASH_SOURCE" "$line" "$cmd" "$rc" "${PIPESTATUS[*]:-}" &gt;&amp;2
+}
+trap err ERR
+
+declare -a CHILDREN=()
+declare -A SCRATCH_PATHS=()
+cleanup_all() {
+  for pid in "${CHILDREN[@]:-}"; do kill "$pid" 2&gt;/dev/null || true; done
+  for path in "${!SCRATCH_PATHS[@]}"; do rm -rf "$path"; done
+}
+trap cleanup_all EXIT INT TERM
+
+# ... predicate body uses CHILDREN+=("$pid") and SCRATCH_PATHS["$path"]=1 ...
+</pre>
+
+<div class="callout">
+<div class="callout-title">The discipline in one sentence</div>
+<p>Make every exit-code path explicit. <code>cmd || exit 125</code> tells the reader "if this command fails, the commit is untestable." <code>cmd</code> with implicit <code>set -e</code> tells the reader "good luck guessing what this exit code means." Predicates are decision procedures; their decisions must be readable.</p>
+</div>
+</template>
+
+<template data-page-title="Process and Signal Management" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Process and Signal Management in Predicates</h2>
+<p class="lede">Predicates that start servers, run timed work, or coordinate parallel tasks must manage processes carefully. The naive patterns leak zombies, lose results to signal races, or hang forever on stuck children. This page is the survival guide.</p>
+
+<h3>Background jobs and the job-control basics</h3>
+<pre class="code" data-lang="shell" data-title="job-basics.sh">#!/usr/bin/env bash
+some-server &amp;          # start in background
+SERVER=$!              # capture pid
+jobs                   # list background jobs
+jobs -p                # list pids only
+disown                 # forget job; survives shell exit
+wait "$SERVER"         # block until SERVER exits
+wait                   # block until ALL background jobs exit
+</pre>
+
+<h3>The "is it still alive?" check</h3>
+<pre class="code" data-lang="shell" data-title="alive-check.sh">#!/usr/bin/env bash
+# kill -0 sends no signal — just checks if the process exists and is signal-able.
+if kill -0 "$SERVER" 2&gt;/dev/null; then
+  echo "still alive"
+else
+  echo "dead — collecting exit code"
+  wait "$SERVER"; rc=$?
+fi
+</pre>
+
+<h3>Process groups for clean kill</h3>
+<pre class="code" data-lang="shell" data-title="process-groups.sh">#!/usr/bin/env bash
+# A server may fork helpers. Killing only the parent leaves orphans.
+# Start it in its own process group so you can kill the whole tree.
+
+setsid some-server &amp;       # creates new session + process group
+SERVER_PGID=$!
+
+# To kill the whole tree:
+cleanup() {
+  # Negative pid means "kill the process group". Critical.
+  kill -- "-$SERVER_PGID" 2&gt;/dev/null || true
+}
+trap cleanup EXIT INT TERM
+</pre>
+
+<h3>The <code>timeout</code> trap and how to escape it</h3>
+<pre class="code" data-lang="shell" data-title="timeout-handling.sh">#!/usr/bin/env bash
+# timeout sends SIGTERM, then SIGKILL after --kill-after. Capture the
+# distinction so timeout doesn't get conflated with the bug.
+
+timeout --kill-after=5 30 some-long-command
+case $? in
+  0)   exit 0 ;;
+  124) echo "timed out (SIGTERM)" ; exit 125 ;;   # not the bug, probably env
+  137) echo "hard-killed (SIGKILL after 5s grace)"; exit 125 ;;
+  *)   exit 1 ;;
+esac
+</pre>
+
+<h3>Signal handlers and the race they create</h3>
+<pre class="code" data-lang="shell" data-title="signal-race.sh">#!/usr/bin/env bash
+# Default: signals interrupt the running command but trap fires AFTER the
+# current command completes. This creates a race: cleanup might run before
+# you wrote your important measurement.
+
+declare -a MEASUREMENTS=()
+interrupted=0
+
+handle_sigint() {
+  interrupted=1
+  echo "SIGINT received; finishing current measurement..."
+}
+trap handle_sigint INT
+
+for i in {1..100}; do
+  if (( interrupted == 1 )); then
+    echo "exiting cleanly with ${#MEASUREMENTS[@]} measurements" &gt;&amp;2
+    break
+  fi
+  MEASUREMENTS+=("$(measure-once)")
+done
+
+# Now we exit cleanly with results, even if interrupted.
+echo "${MEASUREMENTS[*]}"
+</pre>
+
+<h3>The fork bomb trap</h3>
+<pre class="code" data-lang="shell" data-title="forkbomb-protect.sh">#!/usr/bin/env bash
+# A naive parallel bisection can fork unbounded workers if the loop doesn't
+# back-pressure. Use ulimit + explicit job counting.
+
+ulimit -u 1024              # max user processes — kernel-level cap
+MAX_JOBS=8
+declare -A JOBS
+
+start_job() {
+  if (( ${#JOBS[@]} &gt;= MAX_JOBS )); then
+    # wait -n: block until any job finishes
+    wait -n
+    for pid in "${!JOBS[@]}"; do
+      kill -0 "$pid" 2&gt;/dev/null || unset 'JOBS[$pid]'
+    done
+  fi
+  ( predicate-for "$1" ) &amp;
+  JOBS[$!]="$1"
+}
+
+for sha in "$@"; do start_job "$sha"; done
+wait    # let stragglers finish
+</pre>
+
+<h3>Zombie reaping</h3>
+<pre class="code" data-lang="shell" data-title="zombie-reaping.sh">#!/usr/bin/env bash
+# Bash auto-reaps zombies when it exits, but a long-running predicate that
+# spawns many backgrounds accumulates them. Explicit `wait` periodically clears.
+
+declare -a CHILDREN=()
+for sha in "$@"; do
+  ( predicate-for "$sha" ) &amp;
+  CHILDREN+=($!)
+  if (( ${#CHILDREN[@]} % 50 == 0 )); then
+    # reap finished ones every 50 spawns
+    for pid in "${CHILDREN[@]}"; do
+      kill -0 "$pid" 2&gt;/dev/null || wait "$pid"
+    done
+  fi
+done
+wait
+</pre>
+
+<h3>Signal masks and the <code>SIGCHLD</code> dance</h3>
+<pre class="code" data-lang="shell" data-title="sigchld.sh">#!/usr/bin/env bash
+# For event-driven parallel bisection: notice as soon as ANY child finishes.
+# Set a SIGCHLD handler that records the death and triggers further work.
+
+declare -A PENDING=()
+declare -a COMPLETED=()
+
+handle_sigchld() {
+  local pid rc
+  for pid in "${!PENDING[@]}"; do
+    if ! kill -0 "$pid" 2&gt;/dev/null; then
+      wait "$pid"; rc=$?
+      COMPLETED+=("${PENDING[$pid]}:$rc")
+      unset 'PENDING[$pid]'
+    fi
+  done
+}
+trap handle_sigchld CHLD
+
+for sha in "$@"; do
+  ( predicate-for "$sha" ) &amp;
+  PENDING[$!]="$sha"
+done
+wait
+echo "All done. Results:"
+printf '%s\n' "${COMPLETED[@]}"
+</pre>
+
+<h3>The signal-and-cleanup matrix</h3>
+<table class="cmp">
+<tr><th>Signal</th><th>Default behavior</th><th>Predicate response</th></tr>
+<tr><td><code>SIGINT</code> (Ctrl-C)</td><td>Terminate</td><td>Run cleanup, exit 130</td></tr>
+<tr><td><code>SIGTERM</code></td><td>Terminate</td><td>Run cleanup, exit 143</td></tr>
+<tr><td><code>SIGHUP</code></td><td>Terminate (terminal hangup)</td><td>Run cleanup, exit 129</td></tr>
+<tr><td><code>SIGCHLD</code></td><td>Ignored</td><td>Trap to handle child deaths</td></tr>
+<tr><td><code>SIGPIPE</code></td><td>Terminate (writing to closed pipe)</td><td>Usually safe to ignore; can be benign</td></tr>
+<tr><td><code>SIGUSR1</code> / <code>SIGUSR2</code></td><td>Terminate</td><td>Use for in-band control (dump state, etc.)</td></tr>
+<tr><td><code>SIGKILL</code></td><td>Terminate (uncatchable)</td><td>Can't trap; only your parent can clean up after you</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">The process-management mindset</div>
+<p>Every process your predicate starts is your responsibility until it dies. Servers, helpers, queries, parallel workers — all of them. If you don't track them, they survive your script and pollute the next round. This is the single biggest cause of "the bisection results changed between runs": leftover state from previous rounds. Process discipline isn't optional; it's the difference between a predicate that works once and one that works a hundred times.</p>
+</div>
+</template>
+
+<template data-page-title="Concurrent Bisection with flock and GNU parallel" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Concurrent Bisection — flock, GNU parallel, the Winner-Takes-All Pattern</h2>
+<p class="lede">Standard <code>git bisect</code> is serial: one round at a time. But when each round's predicate is expensive and your CI has 32 cores, you can run multiple candidate commits in parallel and let the first verdict win. This page is the parallel-bisection toolkit.</p>
+
+<h3>The serial baseline (what we're improving on)</h3>
+<p>For 1,024 candidates and a 60-second predicate, serial bisection needs 10 rounds × 60s = 10 minutes. With 8 parallel workers each testing different commits in the search interval, we can drop this to ~2 minutes — but only if we coordinate correctly.</p>
+
+<h3>The interval-split parallel bisector</h3>
+<pre class="code" data-lang="shell" data-title="parallel-bisect.sh">#!/usr/bin/env bash
+# parallel-bisect.sh
+# Splits the remaining bisection interval into N chunks; runs the predicate
+# in parallel on the endpoints of each chunk. The first verdict that's
+# inconsistent with monotonicity tells us which chunk contains the culprit.
+#
+# Faster than serial when:
+#   - Predicates are expensive (&gt; 30s)
+#   - You have idle cores
+#   - The build is parallelizable (each worker has its own worktree)
+
+set -uEo pipefail
+LO="${1:?good SHA}"
+HI="${2:?bad SHA}"
+WORKERS="${WORKERS:-8}"
+PREDICATE="${3:?path to predicate}"
+
+# Materialize the candidate set in linear-history order
+mapfile -t CANDIDATES &lt; &lt;(git rev-list --reverse "$LO..$HI")
+TOTAL=${#CANDIDATES[@]}
+
+while (( TOTAL &gt; 1 )); do
+  # Pick W evenly-spaced commits inside the current interval
+  PROBES=()
+  STEP=$(( TOTAL / (WORKERS + 1) ))
+  (( STEP == 0 )) &amp;&amp; STEP=1
+  for ((i = STEP; i &lt; TOTAL; i += STEP)); do
+    PROBES+=("${CANDIDATES[$i]}")
+  done
+
+  # Run each probe in a separate worktree, in parallel
+  RESULTS=()
+  declare -A PID2IDX=()
+  for j in "${!PROBES[@]}"; do
+    sha="${PROBES[$j]}"
+    wt="/tmp/wt-$j"
+    git worktree add -f "$wt" "$sha" &gt;/dev/null
+    ( cd "$wt"; "$PREDICATE" &gt;/dev/null 2&gt;&amp;1; echo "$?" &gt; "/tmp/rc-$j" ) &amp;
+    PID2IDX[$!]=$j
+  done
+  wait    # all probes finish
+
+  # Collect results in probe order
+  RESULTS=()
+  for j in "${!PROBES[@]}"; do
+    RESULTS+=("$(&lt; /tmp/rc-$j)")
+    git worktree remove --force "/tmp/wt-$j" &gt;/dev/null
+  done
+
+  # Find the monotonicity boundary: where 0 → 1 transition is
+  for ((k = 0; k &lt; ${#RESULTS[@]}; k++)); do
+    if (( RESULTS[k] == 1 )); then
+      # culprit is between PROBES[k-1] and PROBES[k]
+      NEW_LO_IDX=$(( STEP * (k) ))         # PROBES[k-1] is somewhere here
+      NEW_HI_IDX=$(( STEP * (k+1) ))
+      CANDIDATES=("${CANDIDATES[@]:$NEW_LO_IDX:$((NEW_HI_IDX - NEW_LO_IDX))}")
+      TOTAL=${#CANDIDATES[@]}
+      break
+    fi
+  done
+done
+
+echo "Culprit: ${CANDIDATES[0]}"
+</pre>
+
+<h3><code>flock</code> for shared-state bisection</h3>
+<pre class="code" data-lang="shell" data-title="flock-bisect.sh">#!/usr/bin/env bash
+# When parallel workers must coordinate (e.g. share a result cache), use flock.
+LOCKFILE=/tmp/bisect-state.lock
+STATEFILE=/tmp/bisect-state.json
+
+# Atomic update of shared state
+update_state() {
+  local sha="$1" result="$2"
+  ( flock -w 5 200 &amp;&amp; \
+    jq --arg sha "$sha" --arg rc "$result" \
+       '.results[$sha] = ($rc | tonumber)' "$STATEFILE" &gt; "$STATEFILE.new" &amp;&amp; \
+    mv "$STATEFILE.new" "$STATEFILE"
+  ) 200&gt; "$LOCKFILE"
+}
+
+# Race-free check of whether a sha was already tested
+check_cached() {
+  local sha="$1"
+  ( flock -s 200 &amp;&amp; \
+    jq -e --arg sha "$sha" '.results[$sha]' "$STATEFILE" 2&gt;/dev/null
+  ) 200&lt; "$LOCKFILE"
+}
+</pre>
+<p><code>flock -w 5</code> waits up to 5 seconds for the exclusive lock. <code>flock -s</code> takes a shared (read) lock — multiple readers can hold it simultaneously.</p>
+
+<h3>GNU parallel — the universal parallel runner</h3>
+<pre class="code" data-lang="shell" data-title="gnu-parallel-bisect.sh">#!/usr/bin/env bash
+# GNU parallel: test a list of candidate SHAs in parallel, with a joblog
+# for resumability.
+
+git rev-list --reverse last-good..HEAD | parallel \
+  --jobs 8 \
+  --joblog /tmp/parallel.log \
+  --keep-order \
+  --tagstring "[{}]" \
+  --halt now,fail=1 \
+  '
+    sha={};
+    git worktree add -f "/tmp/wt-$sha" "$sha" 2&gt;/dev/null
+    ( cd "/tmp/wt-$sha" &amp;&amp; ./predicate.sh )
+    rc=$?
+    git worktree remove -f "/tmp/wt-$sha" 2&gt;/dev/null
+    echo "$sha:$rc"
+  '
+
+cat /tmp/parallel.log    # see runtime per task
+</pre>
+<p>Key flags:</p>
+<ul>
+  <li><code>--jobs 8</code>: 8 workers concurrent.</li>
+  <li><code>--joblog</code>: per-task timing, exit code, host. Can resume failed runs with <code>--resume</code>.</li>
+  <li><code>--keep-order</code>: output appears in input order even though runs are concurrent.</li>
+  <li><code>--halt now,fail=1</code>: stop the moment any task fails (useful for "find any commit where it breaks").</li>
+  <li><code>--halt now,success=1</code>: stop the moment any task succeeds (the winner-takes-all pattern below).</li>
+</ul>
+
+<h3>The "winner takes all" pattern</h3>
+<pre class="code" data-lang="shell" data-title="winner-takes-all.sh">#!/usr/bin/env bash
+# When you want to find ANY commit that has property X, not all of them.
+# E.g. "find any commit where the test passes" or "find the first working
+# version" — useful for hunting fixes, not bugs.
+
+git rev-list --reverse last-known-bad..HEAD | parallel \
+  --jobs 4 \
+  --halt now,success=1 \
+  '
+    if ./predicate.sh; then
+      echo "FOUND: {}"
+      exit 0
+    fi
+  '
+</pre>
+
+<h3>Per-worker isolation pattern</h3>
+<pre class="code" data-lang="shell" data-title="worker-isolation.sh">#!/usr/bin/env bash
+# Each worker needs its own DB, port, scratch dir, etc. The cheapest way:
+# parametrize by worker ID, derive everything from it.
+
+parallel --jobs 4 '
+  WORKER_ID={#}
+  PORT=$((30000 + WORKER_ID))
+  DB="bisect_w${WORKER_ID}"
+  SCRATCH="/tmp/bisect-w${WORKER_ID}"
+  export PORT DB SCRATCH
+
+  # Now the predicate uses these unique-per-worker resources.
+  ./predicate.sh "{}"
+' ::: $(git rev-list --reverse last-good..HEAD)
+</pre>
+<p><code>{#}</code> is the worker slot number (1-based). Using it for everything that must be unique avoids cross-worker collisions.</p>
+
+<h3>The cost-benefit of parallel bisection</h3>
+<table class="cmp">
+<tr><th>Predicate cost</th><th>Serial time (10 rounds)</th><th>Parallel × 8</th><th>Speedup</th></tr>
+<tr><td>10 s</td><td>100 s</td><td>~40 s (probe overhead dominates)</td><td>2.5×</td></tr>
+<tr><td>60 s</td><td>10 min</td><td>~2 min</td><td>5×</td></tr>
+<tr><td>5 min</td><td>50 min</td><td>~10 min</td><td>5×</td></tr>
+<tr><td>30 min</td><td>5 hours</td><td>~1 hour</td><td>5×</td></tr>
+</table>
+<p>The speedup plateaus around 5× even with 8 workers because (a) the search space halves more conservatively per round and (b) worker setup has fixed overhead. Below 10s per predicate, serial usually wins on simplicity.</p>
+
+<div class="callout">
+<div class="callout-title">When NOT to parallelize</div>
+<p>If your predicate writes to shared state (a database, a port), parallel runs collide. If your build is non-deterministic (timestamps in binaries, parallel-compile race conditions), parallel rounds produce different artifacts. Fix isolation first; parallelize second. A non-isolated parallel bisection produces faster wrong answers.</p>
+</div>
+</template>
+
+<template data-page-title="Debugging the Predicate Itself" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Debugging Bash Predicates — set -x, BASH_XTRACEFD, bashdb, bats</h2>
+<p class="lede">When your predicate misbehaves, you reach for the same tools you'd use on any bash script — but for predicates, the techniques have specific gotchas. This page covers shell-level debugging that's targeted at the bisection use case.</p>
+
+<h3><code>set -x</code> and what it actually prints</h3>
+<pre class="code" data-lang="shell" data-title="set-x-basics.sh">#!/usr/bin/env bash
+set -x          # trace mode: print each command (post-expansion) before running
+
+a=hello
+b="world"
+echo "$a $b"
+# Trace output (to stderr):
+#   + a=hello
+#   + b=world
+#   + echo 'hello world'
+</pre>
+<p><code>set -x</code> prints commands AFTER variable expansion. That's exactly what you want when debugging "what did this actually run?" — but it floods stdout. The classic problem is that during a parallel bisection, all the traces interleave into an unreadable mess.</p>
+
+<h3><code>BASH_XTRACEFD</code> for redirecting trace output</h3>
+<pre class="code" data-lang="shell" data-title="xtracefd.sh">#!/usr/bin/env bash
+# Redirect trace to a file (or fd) instead of stderr. Now your predicate's
+# actual stderr stays clean for bisection's reading.
+
+exec {trace_fd}&gt;"/tmp/predicate-trace-$$.log"   # open fd, bash 4.1+
+export BASH_XTRACEFD=$trace_fd
+set -x
+
+# ... predicate body ...
+
+set +x
+exec {trace_fd}&gt;&amp;-       # close the fd
+</pre>
+<p>Now the trace lives in a file, separated by PID via <code>$$</code>. After the bisection completes, you have a per-round trace file ready to diff against the failure.</p>
+
+<h3>Customizing <code>PS4</code> for richer traces</h3>
+<pre class="code" data-lang="shell" data-title="custom-ps4.sh">#!/usr/bin/env bash
+# Default PS4 is "+ ". Replace with timestamps, file:line, and elapsed time.
+
+export PS4='+ \D{%H:%M:%S.%N} ${BASH_SOURCE##*/}:${LINENO}: '
+set -x
+
+# Trace now looks like:
+#   + 14:23:17.123456789 predicate.sh:42: curl http://localhost:3000/checkout
+#   + 14:23:18.041582763 predicate.sh:43: grep -q OK
+</pre>
+<p>The high-resolution timestamps let you measure exactly which step is slow without adding explicit <code>$EPOCHREALTIME</code> calls. The file:line lets you correlate the trace to source quickly.</p>
+
+<h3>Function entry / exit tracing</h3>
+<pre class="code" data-lang="shell" data-title="trap-debug.sh">#!/usr/bin/env bash
+# Trace every function entry/exit, not just every command.
+
+trace_function() {
+  local depth=${#FUNCNAME[@]}
+  printf '%*s→ %s()\n' "$((depth * 2))" '' "${FUNCNAME[1]}" &gt;&amp;2
+}
+trap 'trace_function' DEBUG    # fires before each simple command
+
+set -o functrace               # functions inherit DEBUG trap
+set -o errtrace                # functions inherit ERR trap
+
+my_function() { echo "hello"; }
+my_function
+# →   → my_function()
+# → hello
+</pre>
+
+<h3>Conditional tracing — only trace the suspect block</h3>
+<pre class="code" data-lang="shell" data-title="conditional-trace.sh">#!/usr/bin/env bash
+# Tracing the entire predicate is overwhelming. Trace only the section
+# where you suspect the bug.
+
+before_observe() {
+  exec {trace_fd}&gt;"/tmp/trace-observe.log"
+  export BASH_XTRACEFD=$trace_fd
+  set -x
+}
+after_observe() {
+  set +x
+  exec {trace_fd}&gt;&amp;-
+}
+
+# ... setup ...
+
+before_observe
+# === OBSERVATION block ===
+RESULT=$(curl -sf -w '%{http_code}' "http://localhost:$PORT/checkout")
+[ "$RESULT" = "200" ] &amp;&amp; rc=0 || rc=1
+# === end ===
+after_observe
+
+exit $rc
+</pre>
+
+<h3><code>bashdb</code> — interactive debugging</h3>
+<pre class="code" data-lang="shell" data-title="bashdb-session.sh"># bashdb (https://bashdb.sourceforge.net) is gdb-style for bash.
+# Install: apt-get install bashdb / brew install bashdb
+
+bashdb ./predicate.sh
+
+# Inside bashdb:
+(bashdb) break 42        # breakpoint at line 42
+(bashdb) run             # start execution
+(bashdb) print $SERVER_PID
+(bashdb) step            # single-step
+(bashdb) continue
+(bashdb) where           # backtrace
+(bashdb) eval 'echo "$?"'  # arbitrary expression
+</pre>
+<p>For a complex predicate failing in the middle of round 4 of 10, bashdb is the cleanest way to inspect state at the failure point. Worth installing once.</p>
+
+<h3>Bats — testing your predicate is correct</h3>
+<pre class="code" data-lang="shell" data-title="predicate.bats">#!/usr/bin/env bats
+# bats-core: a test framework for bash scripts.
+# Install: apt-get install bats / brew install bats-core
+# Run: bats predicate.bats
+
+@test "predicate returns 0 at known-good SHA" {
+  git checkout -q a3f9c81
+  run ./predicate.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "predicate returns 1 at known-bad SHA" {
+  git checkout -q e7b2a91
+  run ./predicate.sh
+  [ "$status" -eq 1 ]
+}
+
+@test "predicate returns 125 on missing dependency" {
+  mv pnpm-lock.yaml pnpm-lock.yaml.bak
+  run ./predicate.sh
+  [ "$status" -eq 125 ]
+  mv pnpm-lock.yaml.bak pnpm-lock.yaml
+}
+
+@test "predicate handles SIGINT cleanly" {
+  ./predicate.sh &amp;
+  sleep 1
+  kill -INT $!
+  wait $!
+  [ ! -e /tmp/predicate-leftover ]
+}
+</pre>
+<p>Predicates are decision procedures. Decision procedures deserve tests. Bats is the lightest-weight way to verify that your predicate gives the right answers at known endpoints — which is the meta-predicate from Part XIII.6 formalized as a test suite.</p>
+
+<h3>shellcheck — static analysis</h3>
+<pre class="code" data-lang="shell" data-title="shellcheck.sh"># shellcheck (https://www.shellcheck.net) catches common bash mistakes statically.
+# Install: apt-get install shellcheck / brew install shellcheck
+
+shellcheck predicate.sh
+
+# Common findings:
+#   SC2086 (quote $variables to prevent word splitting)
+#   SC2046 (quote command substitution)
+#   SC2155 (declare and assign on separate lines for proper error checking)
+#   SC2068 (quote "$@" not $@)
+</pre>
+<p>Run shellcheck in CI on every predicate. Every warning is a potential intermittent failure in production bisection.</p>
+
+<h3>The "did the predicate even run correctly?" instrumentation</h3>
+<pre class="code" data-lang="shell" data-title="instrumented-predicate.sh">#!/usr/bin/env bash
+# Wraps a predicate with rich logging — write everything that affects the
+# decision to a log file. Indispensable for post-mortem analysis.
+
+LOGFILE="/tmp/predicate-$(git rev-parse --short HEAD).log"
+exec &gt; &gt;(tee "$LOGFILE") 2&gt;&amp;1
+
+echo "=== START $(date -Iseconds) ==="
+echo "PWD: $PWD"
+echo "GIT HEAD: $(git rev-parse HEAD)"
+echo "GIT STATUS:"
+git status --short
+echo "ENV (filtered):"
+env | grep -E '^(PORT|DB|NODE_|PNPM_|CI)' | sort
+
+echo "=== PREDICATE BODY ==="
+# ... your predicate ...
+EXIT_CODE=$?
+
+echo "=== END (exit $EXIT_CODE) ==="
+exit $EXIT_CODE
+</pre>
+<p>After the bisection completes, you have one log per round. The pattern across logs almost always identifies the issue: an env var that was set on some rounds but not others; a transient network failure that only hit round 4; a port that was occupied during one specific round.</p>
+
+<div class="callout good">
+<div class="callout-title">The meta-predicate idea, expanded</div>
+<p>The bats tests above are the formal version of "did my predicate calibrate?" from Part XIII.6. Run the bats suite as a CI check on every PR that touches your predicate. The predicate stays calibrated as long as the tests pass; if they break, the predicate is broken — and you find out before the next 4-hour bisection rather than during it.</p>
+</div>
+</template>
+
+<template data-page-title="Bash Performance for Long Predicates" data-part="VI — Bash Toolkit">
+<span class="badge">Part VI · Bash Toolkit</span>
+<h2 class="page-title">Bash Performance — Subshells, Forks, and When to Drop to awk</h2>
+<p class="lede">Bash is fast for orchestration and slow for computation. A predicate that spawns subshells in a loop, or does heavy string processing in pure bash, can be 100× slower than necessary. This page is the optimization guide for the predicates that run dozens or hundreds of times.</p>
+
+<h3>The fork cost</h3>
+<p>Every subshell, every command substitution <code>$(...)</code>, every pipeline forks the bash process. Forks aren't free:</p>
+
+<table class="cmp">
+<tr><th>Operation</th><th>Typical cost</th><th>When it matters</th></tr>
+<tr><td>Pure bash assignment</td><td>~0.1 μs</td><td>Never</td></tr>
+<tr><td>Builtin call (<code>echo</code>, <code>printf</code>)</td><td>~1 μs</td><td>Rarely</td></tr>
+<tr><td>External command (e.g. <code>date</code>)</td><td>~1–3 ms</td><td>In tight loops</td></tr>
+<tr><td>Subshell <code>$(...)</code></td><td>~0.5–1 ms</td><td>In tight loops</td></tr>
+<tr><td>Pipeline of 3 commands</td><td>~3–5 ms</td><td>Often</td></tr>
+</table>
+
+<p>Multiply by N iterations of a loop, and a 100-item loop that should take 0.01s takes 0.5s purely from fork overhead.</p>
+
+<h3>Replace <code>$(date)</code> in loops</h3>
+<pre class="code" data-lang="shell" data-title="perf-date.sh"># ❌ Slow: $(date) forks per iteration
+for i in {1..1000}; do
+  echo "$(date +%s.%N): iteration $i"
+done
+
+# ✅ Fast: use EPOCHREALTIME (bash 5+)
+for i in {1..1000}; do
+  echo "$EPOCHREALTIME: iteration $i"
+done
+
+# Time difference on 1000 iterations: ~1.5s vs ~5ms. 300×.
+</pre>
+
+<h3>Replace pure-bash arithmetic with <code>((</code> <code>))</code></h3>
+<pre class="code" data-lang="shell" data-title="perf-arith.sh"># ❌ Slow: $(echo "$a + $b" | bc) — forks bc per call
+sum=0
+for i in {1..100}; do
+  sum=$(echo "$sum + $i" | bc)
+done
+
+# ✅ Fast: bash arithmetic
+sum=0
+for i in {1..100}; do
+  (( sum += i ))
+done
+</pre>
+
+<h3>Replace <code>$(grep | awk)</code> with bash regex</h3>
+<pre class="code" data-lang="shell" data-title="perf-regex.sh"># ❌ Slow: pipe of two commands
+for line in "${lines[@]}"; do
+  value=$(echo "$line" | grep -oE '[0-9]+' | head -1)
+done
+
+# ✅ Fast: bash =~ with BASH_REMATCH
+for line in "${lines[@]}"; do
+  [[ "$line" =~ ([0-9]+) ]] &amp;&amp; value="${BASH_REMATCH[1]}"
+done
+</pre>
+
+<h3>Use <code>printf</code>, not <code>echo</code> in loops</h3>
+<pre class="code" data-lang="shell" data-title="perf-printf.sh"># Slightly faster than `echo`, and far more portable across shells.
+printf '%s\n' "${array[@]}"           # one printf call
+# vs
+for item in "${array[@]}"; do echo "$item"; done   # N echos
+</pre>
+
+<h3>When to drop to awk</h3>
+<p>For string/numeric processing of input streams, awk is one to two orders of magnitude faster than bash:</p>
+
+<pre class="code" data-lang="shell" data-title="perf-awk.sh"># Compute p99 of 10,000 numbers
+# ❌ Pure bash: ~30 seconds
+sorted=$(printf '%s\n' "${measurements[@]}" | sort -n)
+p99_idx=$(( ${#measurements[@]} * 99 / 100 ))
+p99=$(echo "$sorted" | sed -n "${p99_idx}p")
+
+# ✅ awk: ~50 milliseconds
+p99=$(printf '%s\n' "${measurements[@]}" | sort -n | awk -v n="${#measurements[@]}" '
+  NR == int(n * 0.99) { print; exit }
+')
+
+# ✅✅ All-in-awk: ~10 ms
+p99=$(printf '%s\n' "${measurements[@]}" | awk '
+  { a[NR] = $1 }
+  END {
+    asort(a)
+    print a[int(NR * 0.99)]
+  }
+')
+</pre>
+
+<h3>Use <code>lastpipe</code> to avoid subshell loss</h3>
+<pre class="code" data-lang="shell" data-title="perf-lastpipe.sh"># ❌ subshell — counter is reset after the pipe
+count=0
+seq 1 100 | while read -r x; do (( count++ )); done
+echo "$count"     # → 0 (counter lost)
+
+# ✅ lastpipe — last segment runs in current shell
+shopt -s lastpipe
+set +m            # required: turn off job control
+count=0
+seq 1 100 | while read -r x; do (( count++ )); done
+echo "$count"     # → 100
+</pre>
+
+<h3>Memoize expensive computations</h3>
+<pre class="code" data-lang="shell" data-title="perf-memoize.sh"># Avoid recomputing the same value across loop iterations.
+declare -A SHA_AUTHOR_CACHE
+author_of() {
+  local sha="$1"
+  if [[ -z "${SHA_AUTHOR_CACHE[$sha]:-}" ]]; then
+    SHA_AUTHOR_CACHE[$sha]=$(git log -1 --format='%an' "$sha")
+  fi
+  echo "${SHA_AUTHOR_CACHE[$sha]}"
+}
+</pre>
+
+<h3>Profile your predicate</h3>
+<pre class="code" data-lang="shell" data-title="profile-bash.sh"># Trace with timestamps to find the slow steps.
+export PS4='+ $EPOCHREALTIME ${BASH_SOURCE##*/}:${LINENO}: '
+set -x
+./predicate.sh 2&gt; /tmp/trace.log
+set +x
+
+# Now compute per-line time deltas:
+awk '
+  /^\+ [0-9]+\.[0-9]+ / {
+    t = $2
+    if (prev_t != 0) print (t - prev_t) "s  " $0
+    prev_t = t
+  }
+' /tmp/trace.log | sort -rn | head -20
+</pre>
+<p>This gives you the top 20 slowest steps in your predicate, sorted descending. The Pareto principle applies brutally: usually 2-3 lines account for 80% of the runtime.</p>
+
+<h3>The benchmark routine</h3>
+<pre class="code" data-lang="shell" data-title="benchmark-predicate.sh">#!/usr/bin/env bash
+# Run a predicate N times and report stats. Catches predicates whose
+# wall-clock varies wildly across rounds.
+
+N="${1:-10}"
+declare -a TIMES=()
+
+for ((i=1; i&lt;=N; i++)); do
+  t0=$EPOCHREALTIME
+  ./predicate.sh &gt;/dev/null 2&gt;&amp;1
+  t1=$EPOCHREALTIME
+  TIMES+=("$(awk -v a="$t0" -v b="$t1" 'BEGIN { print b - a }')")
+done
+
+printf '%s\n' "${TIMES[@]}" | awk '
+  { n++; sum += $1; if ($1 &gt; max || NR == 1) max = $1; if ($1 &lt; min || NR == 1) min = $1; a[NR] = $1 }
+  END {
+    asort(a)
+    p50 = a[int(n * 0.5) + 1]
+    p95 = a[int(n * 0.95) + 1]
+    printf "n=%d  min=%.3fs  p50=%.3fs  p95=%.3fs  max=%.3fs  mean=%.3fs\n",
+           n, min, p50, p95, max, sum/n
+  }
+'
+</pre>
+
+<div class="callout good">
+<div class="callout-title">The optimization order</div>
+<p>Optimize predicates only when you've measured the wall-clock to be a problem. The order: (1) avoid forks in hot loops via builtins, (2) replace expensive pipelines with single awk invocations, (3) memoize repeated calls, (4) drop to a real language (Python/Node) if you're spending more than 100ms in shell logic per round. Most predicates never need step 3 or 4. The discipline is recognizing when they do.</p>
+</div>
+</template>
+
 <template data-page-title="Zsh — Simple to Intermediate" data-part="VII — Zsh Toolkit">
 <span class="badge">Part VII · Zsh Toolkit</span>
 <h2 class="page-title">Zsh Bisection — Simple to Intermediate</h2>
@@ -3394,6 +4465,675 @@ bisect_with_diag() {
   print "culprit: $F[lo]"
 }
 </pre>
+</template>
+
+<template data-page-title="Why Zsh for Bisection — The Concrete Advantages" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Why Zsh for Bisection — The Concrete Advantages</h2>
+<p class="lede">"It's like bash but with more features" is the lazy answer. The real answer: there are five specific zsh features that make certain bisections meaningfully easier than they'd be in bash, and one category of bisection that's almost impossible in bash but trivial in zsh. This page is the case, made specifically.</p>
+
+<h3>The five advantages, ranked by daily impact</h3>
+
+<table class="cmp">
+<tr><th>Advantage</th><th>What it means for bisection</th><th>Bash equivalent</th></tr>
+<tr><td><strong>Glob qualifiers</strong></td><td>Filter files by metadata in one expression: <code>*.svelte(.mod-7)</code> = ".svelte modified less than 7 days ago"</td><td>Pipeline of find + xargs + filter — fragile and slow</td></tr>
+<tr><td><strong>Parameter expansion flags</strong></td><td>Split, join, sort, unique, quote — all without subshells: <code>${(fou)var}</code></td><td>Pipelines to <code>sort -u</code>, <code>tr</code>, etc. with subshell overhead</td></tr>
+<tr><td><strong><code>zsh/zpty</code> module</strong></td><td>Drive interactive REPLs deterministically: type input, capture output, line by line</td><td>None native; requires <code>expect</code> or python</td></tr>
+<tr><td><strong>Process substitution with <code>=()</code></strong></td><td>Materializes a temp file, so you can pass dynamic content where a filename is required</td><td>Manual <code>mktemp</code> + cleanup</td></tr>
+<tr><td><strong><code>zsh/datetime</code> + <code>$EPOCHREALTIME</code></strong></td><td>Microsecond-resolution time as a builtin, no fork</td><td>Bash 5+ has the same; older bash needs <code>date +%s.%N</code></td></tr>
+</table>
+
+<h3>The case for zsh: REPL bisection</h3>
+<p>Some bisections require driving an interactive program — a REPL, a database shell, an SSH session, a TUI. In bash, you reach for <code>expect</code> (a separate tool you have to install and learn) or you embed Python. In zsh, the <code>zsh/zpty</code> module is built in.</p>
+
+<pre class="code" data-lang="zsh" data-title="repl-bisect.zsh">#!/usr/bin/env zsh
+# Drive a node REPL to test "does evaluating this expression hang?"
+zmodload zsh/zpty
+
+zpty NODE 'node --experimental-vm-modules'
+zpty -w NODE 'const result = await import("./src/buggy.mjs"); console.log(result.value);'
+zpty -r -t NODE OUTPUT 5    # read with 5-second timeout
+zpty -d NODE                # close the pty
+
+if (( $#OUTPUT == 0 )); then
+  exit 1                    # hung — predicate says "bad"
+elif [[ "$OUTPUT" == *"42"* ]]; then
+  exit 0                    # got the expected value
+else
+  exit 1
+fi
+</pre>
+
+<p>That's 8 lines. The bash equivalent with <code>expect</code> requires Tcl. The Python equivalent requires <code>pexpect</code> and ~30 lines.</p>
+
+<h3>The case for zsh: glob qualifiers in predicate setup</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-glob-setup.zsh">#!/usr/bin/env zsh
+# Imagine a predicate that runs the test suite, but only for tests modified
+# in the last 7 days. In bash you'd write a find pipeline. In zsh:
+
+modified_tests=(tests/**/*.test.ts(.mw-7))
+#                                  └─┬─┘
+#                                    │
+#                                    ├ . = regular files only
+#                                    └ mw-7 = modified within 7 days (m = mtime, w = weeks)
+
+print "Running ${#modified_tests} recent tests"
+pnpm exec vitest run "${modified_tests[@]}" || exit 1
+</pre>
+
+<p>The qualifier <code>(.mw-7)</code> is a complete filter — file type AND mtime — in 7 characters. Equivalent bash needs <code>find -type f -mtime -7</code> piped through wrapping logic.</p>
+
+<h3>The case for zsh: <code>=()</code> for dynamic file arguments</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-process-sub.zsh">#!/usr/bin/env zsh
+# Diff between two dynamically-generated outputs without writing tempfiles
+# manually. The =(...) creates a temp file behind your back.
+
+diff -u =(produce-baseline-output) =(produce-current-output)
+#       └────────────┬─────────────┘ └────────────┬───────────┘
+#                    │                            │
+#         materialized to /tmp/...     materialized to /tmp/...
+
+# Bash's &lt;(...) creates a named pipe — works for most tools but breaks for tools
+# that mmap or seek. =(...) creates a real file, no caveats.
+</pre>
+
+<h3>When NOT to use zsh</h3>
+<table class="cmp">
+<tr><th>Situation</th><th>Stay with bash</th></tr>
+<tr><td>Predicate must run on minimal Docker images</td><td>zsh isn't installed by default; bash usually is</td></tr>
+<tr><td>Multi-user CI where you don't control the shell</td><td>bash is the universal baseline</td></tr>
+<tr><td>You're sharing the predicate with engineers who don't know zsh</td><td>bash is more universally readable</td></tr>
+<tr><td>POSIX portability is required</td><td>Use <code>#!/bin/sh</code> + POSIX-only features</td></tr>
+</table>
+
+<h3>The hybrid pattern</h3>
+<p>The senior choice in mixed environments: write the predicate's outer shell in bash for portability, then shell out to a zsh sub-script for the zsh-specific parts (zpty REPL driving, glob qualifier filtering).</p>
+
+<pre class="code" data-lang="shell" data-title="hybrid-shell.sh">#!/usr/bin/env bash
+# Bash predicate that delegates the REPL-driving step to a zsh helper.
+set -uo pipefail
+command -v zsh &gt;/dev/null || exit 125    # zsh required for this step
+
+# ... setup in bash ...
+
+zsh ./drive-repl.zsh   # zsh subshell handles the zpty work
+</pre>
+
+<div class="callout good">
+<div class="callout-title">When zsh genuinely wins</div>
+<p>For predicates that drive interactive programs, do non-trivial file selection, or need parameter-expansion-as-DSL, zsh is meaningfully better than bash. For everything else — orchestration, simple test invocation, CI-friendly scripts — bash is the right choice because it's the universal baseline. Use zsh when the bash equivalent would be three times the code and noticeably uglier. The point of this Part isn't "switch everything to zsh"; it's "know what zsh gives you so you can deploy it surgically."</p>
+</div>
+</template>
+
+<template data-page-title="Zsh Glob Qualifiers — A Deep Dive" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Zsh Glob Qualifiers — The Most Underused Feature in Predicates</h2>
+<p class="lede">Zsh's glob qualifiers are a tiny domain-specific language for filtering filesystem matches by metadata. They're written as parenthesized suffixes on a glob pattern: <code>*.log(.mw-1Lk+100)</code> means "files (.) modified this week (mw-1) larger than 100 KB (Lk+100)." For predicates that filter files by type, age, size, owner, or permissions, glob qualifiers are 10× shorter and 100× faster than equivalent <code>find</code> pipelines. This page is the deep dive.</p>
+
+<h3>The full qualifier vocabulary</h3>
+
+<h4>File-type qualifiers</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th><th>Equivalent <code>find</code> flag</th></tr>
+<tr><td><code>.</code></td><td>regular files only</td><td><code>-type f</code></td></tr>
+<tr><td><code>/</code></td><td>directories only</td><td><code>-type d</code></td></tr>
+<tr><td><code>@</code></td><td>symbolic links</td><td><code>-type l</code></td></tr>
+<tr><td><code>=</code></td><td>sockets</td><td><code>-type s</code></td></tr>
+<tr><td><code>p</code></td><td>named pipes (FIFOs)</td><td><code>-type p</code></td></tr>
+<tr><td><code>%</code></td><td>any device (char or block)</td><td><code>-type c -o -type b</code></td></tr>
+</table>
+
+<h4>Permission qualifiers</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th></tr>
+<tr><td><code>r</code></td><td>readable by owner</td></tr>
+<tr><td><code>w</code></td><td>writable by owner</td></tr>
+<tr><td><code>x</code></td><td>executable by owner</td></tr>
+<tr><td><code>R</code></td><td>world-readable</td></tr>
+<tr><td><code>W</code></td><td>world-writable (often a security check)</td></tr>
+<tr><td><code>X</code></td><td>world-executable</td></tr>
+<tr><td><code>f0644</code></td><td>exact mode 0644</td></tr>
+<tr><td><code>f-100</code></td><td>NOT executable by owner</td></tr>
+</table>
+
+<h4>Time qualifiers</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th></tr>
+<tr><td><code>mN</code> / <code>m+N</code> / <code>m-N</code></td><td>modified exactly / more than / less than N days ago</td></tr>
+<tr><td><code>mhN</code></td><td>modified N hours ago (h = hours)</td></tr>
+<tr><td><code>mwN</code></td><td>modified N weeks ago</td></tr>
+<tr><td><code>mMN</code></td><td>modified N months ago</td></tr>
+<tr><td><code>aN</code></td><td>accessed N days ago</td></tr>
+<tr><td><code>cN</code></td><td>inode-changed (e.g. chmod) N days ago</td></tr>
+</table>
+
+<h4>Size qualifiers</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th></tr>
+<tr><td><code>LN</code> / <code>L+N</code> / <code>L-N</code></td><td>exactly / larger than / smaller than N bytes</td></tr>
+<tr><td><code>LkN</code></td><td>N kilobytes (k = kilobytes)</td></tr>
+<tr><td><code>LmN</code></td><td>N megabytes</td></tr>
+<tr><td><code>LpN</code></td><td>N blocks (p = blocks)</td></tr>
+</table>
+
+<h4>Owner / group qualifiers</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th></tr>
+<tr><td><code>uN</code></td><td>owned by user ID N</td></tr>
+<tr><td><code>u:alice:</code></td><td>owned by user alice</td></tr>
+<tr><td><code>gN</code></td><td>owned by group N</td></tr>
+<tr><td><code>g:wheel:</code></td><td>owned by group wheel</td></tr>
+</table>
+
+<h4>Path-manipulation modifiers (post-match)</h4>
+<table class="cmp">
+<tr><th>Modifier</th><th>Means</th></tr>
+<tr><td><code>:h</code></td><td>head (dirname)</td></tr>
+<tr><td><code>:t</code></td><td>tail (basename)</td></tr>
+<tr><td><code>:r</code></td><td>root (strip extension)</td></tr>
+<tr><td><code>:e</code></td><td>extension only</td></tr>
+<tr><td><code>:A</code></td><td>absolute path (canonicalize)</td></tr>
+<tr><td><code>:l</code></td><td>lowercase</td></tr>
+<tr><td><code>:u</code></td><td>uppercase</td></tr>
+</table>
+
+<h4>The arbitrary-expression qualifier</h4>
+<table class="cmp">
+<tr><th>Qualifier</th><th>Means</th></tr>
+<tr><td><code>(e:'expr':)</code></td><td>any boolean expression on <code>$REPLY</code> (the matched filename)</td></tr>
+</table>
+
+<h3>Worked examples for bisection scenarios</h3>
+
+<pre class="code" data-lang="zsh" data-title="zsh-glob-recipes.zsh">#!/usr/bin/env zsh
+
+# Recipe 1: Test only the files modified this week
+recent=( **/*.test.ts(.mw-1) )
+
+# Recipe 2: Find world-writable files in the repo (security bisection)
+risky=( **/*(W) )
+(( $#risky == 0 )) || { echo "world-writable files appeared: ${risky[@]}"; exit 1 }
+
+# Recipe 3: Find large files added recently (bundle-bloat investigation)
+bloat=( dist/**/*(.Lm+1mw-1) )    # &gt; 1MB and modified within the last week
+
+# Recipe 4: Bisect tests in dependency order (by mtime)
+tests_oldest_first=( **/*.test.ts(.om) )    # om = order by mtime
+
+# Recipe 5: Only files owned by current user (skip vendor dirs owned by root)
+mine=( **/*(.u${UID}) )
+
+# Recipe 6: Find symlinks that point to nonexistent targets
+broken=( **/*(@-) )
+
+# Recipe 7: Combine — large recent files modified by a specific person
+suspect=( **/*(.Lm+1mw-1u:alice:) )
+
+# Recipe 8: Files matching pattern AND containing "deprecated" via (e:...)
+files=( **/*.ts(e:'grep -q deprecated $REPLY':) )
+</pre>
+
+<h3>The order/distribution qualifiers</h3>
+
+<pre class="code" data-lang="zsh" data-title="zsh-order-qualifiers.zsh">#!/usr/bin/env zsh
+# Order matters when bisecting — you want a deterministic sort.
+
+newest_first=( **/*(om)  )    # mtime descending
+oldest_first=( **/*(Om)  )    # mtime ascending
+largest_first=( **/*(oL) )    # size descending
+alphabetical=( **/*(on)   )   # by name (default)
+
+# Take the first 10 most recently modified .test.ts files:
+recent10=( **/*.test.ts(.om[1,10]) )
+#                            └──┬──┘
+#                              └── subscript: items 1 through 10
+</pre>
+
+<h3>The performance characteristic</h3>
+<p>Zsh evaluates glob qualifiers in a single pass over its matched set, with <code>stat()</code> calls only when the qualifier needs them. Compare to bash + find + xargs:</p>
+
+<table class="cmp">
+<tr><th>Operation on 10k-file repo</th><th>bash + find + xargs</th><th>zsh glob qualifier</th></tr>
+<tr><td>All files modified this week</td><td>~120 ms</td><td>~25 ms</td></tr>
+<tr><td>All .js files larger than 100KB</td><td>~150 ms</td><td>~30 ms</td></tr>
+<tr><td>All world-writable files</td><td>~140 ms</td><td>~25 ms</td></tr>
+<tr><td>Sorted by mtime descending</td><td>~200 ms (find + sort)</td><td>~40 ms</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">A drill</div>
+<p>The next time you write a <code>find ... -type f -mtime -7 -size +100k | sort</code> pipeline, try the equivalent zsh glob qualifier first. If you can write the qualifier correctly on the first try, you've started internalizing the DSL. After 10–20 attempts, the qualifiers will feel as natural as the find flags do today — and they'll be 5× faster in your predicates.</p>
+</div>
+</template>
+
+<template data-page-title="Zsh Parameter Expansion Flags" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Zsh Parameter Expansion Flags — The DSL Inside <code>${...}</code></h2>
+<p class="lede">Zsh extends parameter expansion with a flags syntax: <code>${(flags)var}</code>. These flags do work that in bash requires entire pipelines — split, join, sort, unique, quote, case-convert. For predicates that process lists of files, commits, or test results, zsh flags eliminate a dozen <code>tr</code>/<code>sort</code>/<code>uniq</code> calls. This page is the full vocabulary with worked examples.</p>
+
+<h3>The flag vocabulary</h3>
+
+<h4>Splitting / joining flags</h4>
+<table class="cmp">
+<tr><th>Flag</th><th>Means</th></tr>
+<tr><td><code>(f)</code></td><td>split on newlines into array</td></tr>
+<tr><td><code>(s:STR:)</code></td><td>split on string STR</td></tr>
+<tr><td><code>(j:STR:)</code></td><td>join array with string STR</td></tr>
+<tr><td><code>(p)</code></td><td>interpret escape sequences in s/j separator (so j:\\n: joins with literal newlines)</td></tr>
+<tr><td><code>(z)</code></td><td>split as shell would (respecting quotes)</td></tr>
+</table>
+
+<h4>Type-conversion flags</h4>
+<table class="cmp">
+<tr><th>Flag</th><th>Means</th></tr>
+<tr><td><code>(A)</code></td><td>treat result as array</td></tr>
+<tr><td><code>(a)</code></td><td>treat result as positional parameter array</td></tr>
+<tr><td><code>(P)</code></td><td>treat value as parameter name; expand THAT (indirect ref)</td></tr>
+<tr><td><code>(@)</code></td><td>even in scalar context, treat as array (preserve elements)</td></tr>
+</table>
+
+<h4>Set-style flags</h4>
+<table class="cmp">
+<tr><th>Flag</th><th>Means</th></tr>
+<tr><td><code>(u)</code></td><td>unique elements only</td></tr>
+<tr><td><code>(o)</code></td><td>sort ascending</td></tr>
+<tr><td><code>(O)</code></td><td>sort descending</td></tr>
+<tr><td><code>(n)</code></td><td>numeric sort (combine with o/O)</td></tr>
+<tr><td><code>(i)</code></td><td>case-insensitive sort</td></tr>
+</table>
+
+<h4>Case / format flags</h4>
+<table class="cmp">
+<tr><th>Flag</th><th>Means</th></tr>
+<tr><td><code>(L)</code></td><td>lowercase</td></tr>
+<tr><td><code>(U)</code></td><td>uppercase</td></tr>
+<tr><td><code>(C)</code></td><td>capitalize first letter of each word</td></tr>
+<tr><td><code>(V)</code></td><td>visible: replace non-printables with escape sequences</td></tr>
+<tr><td><code>(q)</code></td><td>quote for safe shell re-evaluation</td></tr>
+<tr><td><code>(qq)</code></td><td>single-quoted</td></tr>
+<tr><td><code>(qqq)</code></td><td>double-quoted</td></tr>
+<tr><td><code>(qqqq)</code></td><td>$''-quoted (handles non-printables)</td></tr>
+<tr><td><code>(b)</code></td><td>escape for use in a regex / pattern</td></tr>
+<tr><td><code>(Q)</code></td><td>strip ONE level of quoting</td></tr>
+</table>
+
+<h3>Bisection-relevant worked examples</h3>
+
+<pre class="code" data-lang="zsh" data-title="zsh-flags-bisection.zsh">#!/usr/bin/env zsh
+
+# Recipe 1: Read a multi-line command output into an array, deduplicate, sort
+COMMITS_SUSPECT=( ${(fou)"$(git log --format=%h v1.2..HEAD)"} )
+#                  └─┬─┘ └──────────────┬─────────────────┘
+#                    │                  │
+#                    ├ f = split on newlines
+#                    ├ o = sort ascending
+#                    └ u = unique
+
+# Recipe 2: Quote every element of an array for safe re-evaluation
+declare -a FILES=( "file with spaces.ts" "another file.js" )
+SAFE_ARGS=( "${(q)FILES[@]}" )
+eval "ls ${SAFE_ARGS[@]}"          # safe even though filenames have spaces
+
+# Recipe 3: Indirect reference — read a variable named after a SHA
+declare RESULT_a3f9c81="0"
+SHA="a3f9c81"
+echo "${(P)$:-RESULT_$SHA}"        # → "0"
+
+# Recipe 4: Convert array to comma-separated string for an SQL IN clause
+declare -a IDS=( 1 2 3 4 5 )
+csv="${(j:,:)IDS}"                 # → "1,2,3,4,5"
+psql -c "SELECT * FROM users WHERE id IN ($csv);"
+
+# Recipe 5: Read measurement-by-newline output, sort numerically descending
+declare -a MEASUREMENTS=( ${(fOn)"$(./measure-once-per-line)"} )
+P99=$MEASUREMENTS[$((${#MEASUREMENTS}*1/100 + 1))]
+echo "p99 = $P99"
+
+# Recipe 6: Split a colon-separated PATH and find duplicates
+declare -a PATH_PARTS=( ${(s.:.)PATH} )
+declare -a UNIQUE_PARTS=( ${(u)PATH_PARTS} )
+if (( $#PATH_PARTS != $#UNIQUE_PARTS )); then
+  echo "PATH has duplicate entries"
+fi
+
+# Recipe 7: Escape a value for use in a regex
+USER_INPUT='1.2.3 (test)'
+SAFE_RE="${(b)USER_INPUT}"
+[[ "$line" =~ $SAFE_RE ]] &amp;&amp; echo match
+</pre>
+
+<h3>Composing flags for bisection-specific transformations</h3>
+
+<pre class="code" data-lang="zsh" data-title="zsh-flags-composed.zsh">#!/usr/bin/env zsh
+# Flags compose freely. Read the order right-to-left for application:
+
+# Step 1: split on newlines
+# Step 2: deduplicate
+# Step 3: sort ascending
+# All in one expression:
+SORTED_UNIQUE=( ${(fou)"$RAW_OUTPUT"} )
+
+# Numeric sort, descending, with newline split:
+NUM_SORTED_DESC=( ${(fOn)"$NUMBERS"} )
+
+# Split on commas, then trim whitespace (using parameter expansion to strip):
+PARTS=( ${(s:,:)CSV// /} )
+
+# Read a here-doc into an array (multiline string → newline-split):
+EXPECTED=( ${(f)"$(&lt;&lt;EOF
+foo
+bar
+baz
+EOF
+)"} )
+</pre>
+
+<h3>Why this matters for bisection</h3>
+<p>A typical predicate processes lists: lists of files to test, lists of measurements to aggregate, lists of test results to summarize. In bash, each list operation is a pipeline:</p>
+
+<pre class="code" data-lang="text" data-title="bash-vs-zsh-pipeline.txt">BASH:
+  result=$(echo "$raw" | sort -u | head -n 10 | paste -sd, -)
+  ↓ 4 forks, ~3-5 ms overhead
+
+ZSH:
+  result="${(j:,:)${(u)${(fO)raw[1,10]}}}"
+  ↓ 0 forks, ~50 μs
+
+For a predicate run inside a 50-iteration loop:
+  bash:  ~250 ms wasted on subshells
+  zsh:   ~3 ms total
+</pre>
+
+<div class="callout">
+<div class="callout-title">The mental model</div>
+<p>Bash parameter expansion is a string DSL. Zsh parameter expansion is a list-and-string DSL — list operations live inside <code>${...}</code> too, not in pipelines. Once you internalize this, you'll write zsh predicates that look fundamentally different from your bash predicates: shorter, fork-free, and faster for the kinds of list manipulation predicates do constantly.</p>
+</div>
+</template>
+
+<template data-page-title="Zsh Modules — The Built-in Libraries" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Zsh Modules — Built-in Libraries Most Engineers Never Find</h2>
+<p class="lede">Zsh ships with a dozen optional modules loadable via <code>zmodload</code>. Most engineers learn one or two by accident; the rest are unknown. Several of them are exactly what you need when a predicate has to do something bash can't do natively — binary IO, TCP sockets, microsecond timing, regex matching. This page is the inventory with bisection-flavored examples.</p>
+
+<h3>The modules worth knowing</h3>
+
+<table class="cmp">
+<tr><th>Module</th><th>What it adds</th><th>Bisection use case</th></tr>
+<tr><td><code>zsh/datetime</code></td><td><code>$EPOCHREALTIME</code>, <code>strftime</code> builtin</td><td>Microsecond timing without forks</td></tr>
+<tr><td><code>zsh/system</code></td><td><code>sysread</code>, <code>syswrite</code>, <code>sysopen</code>, <code>zsystem</code></td><td>Binary IO, file locking, low-level syscalls</td></tr>
+<tr><td><code>zsh/net/tcp</code></td><td><code>ztcp</code> builtin for raw TCP</td><td>Health checks without invoking <code>curl</code></td></tr>
+<tr><td><code>zsh/net/socket</code></td><td>Unix-domain sockets</td><td>IPC between predicate workers</td></tr>
+<tr><td><code>zsh/regex</code></td><td><code>=~</code> using POSIX-extended regex (vs. zsh's default globbing)</td><td>Same regex behavior as bash</td></tr>
+<tr><td><code>zsh/zpty</code></td><td>Pseudo-terminal control</td><td>Driving REPLs (covered in zsh-zpty page earlier)</td></tr>
+<tr><td><code>zsh/zselect</code></td><td>Select-style file-descriptor multiplexing</td><td>Reading from multiple workers concurrently</td></tr>
+<tr><td><code>zsh/parameter</code></td><td>Read-only views of internal state: <code>$commands</code>, <code>$functions</code>, <code>$jobtexts</code></td><td>Introspection in test predicates</td></tr>
+<tr><td><code>zsh/files</code></td><td>Built-in <code>chmod</code>, <code>chown</code>, <code>ln</code>, <code>mkdir</code> (no fork)</td><td>Filesystem ops in tight loops</td></tr>
+<tr><td><code>zsh/mapfile</code></td><td>Treat files as associative arrays</td><td>Atomic file content access</td></tr>
+</table>
+
+<h3><code>zsh/datetime</code> — microsecond timing</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-datetime.zsh">#!/usr/bin/env zsh
+zmodload zsh/datetime
+
+# $EPOCHREALTIME is a builtin — seconds.microseconds since epoch, no fork.
+start=$EPOCHREALTIME
+./expensive-step.sh
+end=$EPOCHREALTIME
+print "Elapsed: $((end - start)) s"
+
+# strftime builtin — no `date` fork either
+strftime '%Y-%m-%d %H:%M:%S.%6N UTC' $EPOCHSECONDS
+</pre>
+
+<h3><code>zsh/system</code> — low-level syscalls</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-system.zsh">#!/usr/bin/env zsh
+zmodload zsh/system
+
+# Atomic file locking (without flock binary)
+{
+  zsystem flock -t 5 /tmp/bisect.lock
+  # critical section
+  echo "round $1: $2" &gt;&gt; /tmp/results.log
+} always {
+  zsystem flock -u /tmp/bisect.lock
+}
+
+# Binary IO without a subshell
+exec 3&lt; some-binary-file
+sysread -i 3 -o data -s 1024     # read up to 1024 bytes into $data
+exec 3&lt;&amp;-
+
+# Get the kernel version (POSIX uname builtin)
+zmodload zsh/system
+print "Running on $sysparams[host]"
+
+# Sleep with subsecond resolution, no `sleep` fork
+zselect -t 50    # wait 500 ms (units = centiseconds)
+</pre>
+
+<h3><code>zsh/net/tcp</code> — raw TCP for health checks</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-tcp.zsh">#!/usr/bin/env zsh
+zmodload zsh/net/tcp
+
+# Open a TCP connection to a service — no curl, no nc, no fork.
+ztcp localhost 3000 || { print "service not reachable"; exit 125 }
+FD=$REPLY                          # the file descriptor
+
+# Send a minimal HTTP request
+print -u $FD "GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n"
+
+# Read the response (first line only)
+read -u $FD response
+
+# Close
+ztcp -c $FD
+
+# Predicate decision
+[[ "$response" == *"200 OK"* ]] &amp;&amp; exit 0 || exit 1
+</pre>
+
+<p>Native TCP. Zero forks, zero external dependencies. For a health-check that runs hundreds of times during a bisection, this saves real time.</p>
+
+<h3><code>zsh/zselect</code> — multiplexed reading from parallel workers</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-zselect.zsh">#!/usr/bin/env zsh
+zmodload zsh/zselect
+
+# Spawn 4 background workers writing to pipes
+typeset -a WORKER_PIDS WORKER_FDS
+for sha in "$@"; do
+  coproc PREDICATE { ./predicate.sh "$sha"; }
+  WORKER_PIDS+=( $! )
+  WORKER_FDS+=( $PREDICATE )
+done
+
+# Read from whichever FD has data first
+while (( $#WORKER_FDS &gt; 0 )); do
+  zselect -t 100 ${WORKER_FDS}    # wait up to 1s for any FD to be readable
+  for fd in ${(k)reply}; do
+    read -u $fd line
+    print "Worker on FD $fd: $line"
+    # Optionally remove FD if its worker is done
+  done
+done
+</pre>
+
+<h3><code>zsh/parameter</code> — introspection</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-parameter.zsh">#!/usr/bin/env zsh
+zmodload zsh/parameter
+
+# $commands → assoc array of all commands in PATH and their resolved paths
+[[ -n "${commands[pnpm]}" ]] || exit 125    # pnpm not installed
+
+# $functions → assoc array of all defined functions
+print "Defined functions: ${(k)functions}"
+
+# $jobtexts → text of currently-running background jobs
+print "Background work: ${(v)jobtexts}"
+
+# $modules → currently loaded modules
+print "Modules: ${(k)modules}"
+</pre>
+
+<h3><code>zsh/files</code> — fork-free filesystem operations</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-files.zsh">#!/usr/bin/env zsh
+zmodload -F zsh/files b:chmod b:chown b:mkdir b:rm b:ln
+
+# These all run in-process, no fork:
+mkdir -p /tmp/bisect-scratch
+chmod 0755 /tmp/bisect-scratch
+ln -sf /path/to/target /tmp/bisect-scratch/link
+
+# Compare to bash, which would fork each command
+</pre>
+
+<h3>The starter-kit module-load sequence</h3>
+
+<pre class="code" data-lang="zsh" data-title="zsh-starter-modules.zsh">#!/usr/bin/env zsh
+# Load every useful module at predicate startup
+zmodload zsh/datetime
+zmodload zsh/system
+zmodload zsh/net/tcp
+zmodload -F zsh/files b:chmod b:chown b:mkdir b:rm b:ln
+
+# Now $EPOCHREALTIME, ztcp, zsystem flock, in-process mkdir/chmod/rm
+# are all available without external command overhead.
+</pre>
+
+<div class="callout">
+<div class="callout-title">Why modules matter for high-volume predicates</div>
+<p>A predicate that does a health check, three filesystem operations, and one timing measurement per iteration — when called 50 times across a bisection — uses 50 × 5 = 250 external command forks in bash. With zsh modules, that drops to ~0. On a CI runner with cold caches, the savings can be 15+ seconds per bisection. Multiplied across a team's bisections per year, that's hours of saved CI time. Modules are the difference between "competent zsh user" and "engineer who knows where to find the speed."</p>
+</div>
+</template>
+
+<template data-page-title="Async Bisection with zsh-async" data-part="VII — Zsh Toolkit">
+<span class="badge">Part VII · Zsh Toolkit</span>
+<h2 class="page-title">Async Bisection with zsh-async — Parallel Without GNU parallel</h2>
+<p class="lede">Sometimes you want parallel bisection but don't want a GNU parallel dependency, and you want first-class result handling in zsh (not just shell-quoted command strings). The <code>zsh-async</code> library, originally written for the popular Pure prompt, is the toolkit. This page is the bisection-adapted version.</p>
+
+<h3>What zsh-async does</h3>
+<p>It manages a pool of zsh worker subprocesses, lets you dispatch arbitrary zsh functions to them, and gives you a callback for results. Unlike <code>parallel ::: items</code> (which runs shell commands), zsh-async runs zsh code with full access to your functions and variables.</p>
+
+<h3>Installing zsh-async</h3>
+<pre class="code" data-lang="shell" data-title="zsh-async-install.sh"># A single file you can vendor into your repo
+curl -sLo .zsh-async.zsh https://raw.githubusercontent.com/mafredri/zsh-async/main/async.zsh
+# Or via package managers if you prefer.
+</pre>
+
+<h3>The async bisector</h3>
+<pre class="code" data-lang="zsh" data-title="zsh-async-bisect.zsh">#!/usr/bin/env zsh
+source ./.zsh-async.zsh
+
+async_init
+
+# === The predicate function (runs in worker subprocess) ===
+predicate_function() {
+  local sha=$1
+  git checkout -q "$sha" || return 125
+  pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || return 125
+  pnpm build &gt;/dev/null 2&gt;&amp;1 || return 125
+
+  # exercise + observe + exit
+  local result
+  result=$(pnpm test 2&gt;&amp;1)
+  [[ "$result" == *"PASS"* ]] &amp;&amp; return 0 || return 1
+}
+
+# === Result handler (runs in main process) ===
+typeset -A RESULTS
+collect_result() {
+  local job_name=$1
+  local return_code=$2
+  RESULTS[$job_name]=$return_code
+  print "Worker → $job_name: $return_code"
+}
+
+# === Setup worker pool ===
+async_start_worker bisect_worker -n
+async_register_callback bisect_worker collect_result
+
+# === Dispatch ===
+SHAS=( ${(f)"$(git rev-list --reverse last-good..HEAD)"} )
+for sha in $SHAS; do
+  async_job bisect_worker predicate_function "$sha"
+done
+
+# === Wait for completion ===
+while (( ${#RESULTS} &lt; ${#SHAS} )); do
+  async_process_results bisect_worker
+  zselect -t 50    # poll every 500 ms
+done
+
+# === Bisect from results ===
+for sha in $SHAS; do
+  [[ "${RESULTS[$sha]}" == "1" ]] &amp;&amp; { print "First bad: $sha"; break }
+done
+
+async_stop_worker bisect_worker
+</pre>
+
+<h3>Why zsh-async over GNU parallel</h3>
+
+<table class="cmp">
+<tr><th>Aspect</th><th>GNU parallel</th><th>zsh-async</th></tr>
+<tr><td>External dependency</td><td>Yes (requires install)</td><td>No (single vendored file)</td></tr>
+<tr><td>Predicate as zsh function</td><td>No (must shell-quote)</td><td>Yes (direct)</td></tr>
+<tr><td>Access to caller's vars</td><td>No (subshell + env)</td><td>Yes (via exported state)</td></tr>
+<tr><td>Cross-platform</td><td>Yes</td><td>Linux/macOS only (zsh-async uses Unix-only primitives)</td></tr>
+<tr><td>Job log / resumability</td><td>Built-in</td><td>You build it</td></tr>
+<tr><td>Resource isolation</td><td>You provide</td><td>You provide</td></tr>
+</table>
+
+<p>Use zsh-async when your predicate logic is non-trivial zsh code and you'd otherwise have to materialize it as a shell-quoted string for GNU parallel. Use GNU parallel when you want zero-setup parallelism for arbitrary commands.</p>
+
+<h3>The simpler alternative — bash <code>coproc</code> + <code>zselect</code></h3>
+
+<p>If you don't want a library dependency, you can build a smaller async pool with <code>zsh</code>'s native <code>coproc</code> and <code>zselect</code>:</p>
+
+<pre class="code" data-lang="zsh" data-title="zsh-coproc-pool.zsh">#!/usr/bin/env zsh
+zmodload zsh/zselect
+
+typeset -a WORKERS
+
+# Spawn a pool
+for i in {1..4}; do
+  coproc WORKER_$i { while read line; do eval "$line"; echo "DONE $?"; done; }
+  WORKERS+=( ${(P)$(:):-WORKER_$i} )
+done
+
+# Dispatch
+for sha in "$@"; do
+  # Pick the first idle worker (zselect with timeout 0 = poll)
+  # ... [round-robin or first-idle logic] ...
+  print -u $worker_fd "./predicate.sh $sha"
+done
+
+# Collect — zselect tells you which FDs are readable
+while ( ... ); do
+  zselect -t 100 ${WORKERS}
+  for fd in ${(k)reply}; do
+    read -u $fd result
+    # ... handle ...
+  done
+done
+</pre>
+
+<p>This is ~30 lines of pure zsh, zero external dependencies. For 90% of parallel-bisection cases, it's enough.</p>
+
+<h3>The choice matrix</h3>
+
+<table class="cmp">
+<tr><th>If you want…</th><th>Use…</th></tr>
+<tr><td>The simplest parallel bisection with arbitrary commands</td><td>GNU parallel</td></tr>
+<tr><td>Pure zsh, no external deps</td><td>coproc + zselect</td></tr>
+<tr><td>Sophisticated worker management with callbacks</td><td>zsh-async</td></tr>
+<tr><td>POSIX portability</td><td>Stay in bash with <code>wait -n -p</code> (Part VI concurrency page)</td></tr>
+<tr><td>Distributed across machines</td><td>parallel-ssh or pdsh</td></tr>
+</table>
+
+<div class="callout good">
+<div class="callout-title">The hidden cost of parallelism</div>
+<p>Parallel bisection in zsh is genuinely elegant — but the elegance is only worth it when the per-round predicate cost is high enough to justify the worker-setup overhead (~50ms per worker). Below 5-second predicates, you'll often find that the parallel version takes longer wall-clock than serial because the workers spend more time starting than running. Measure before optimizing. The senior choice is to keep predicates fast first; parallelize second.</p>
+</div>
 </template>
 
 <template data-page-title="Bisecting in CI" data-part="VIII — Real-World">
