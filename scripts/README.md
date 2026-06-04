@@ -16,6 +16,7 @@ codes, and is exactly the version embedded in the corresponding lesson.
 | `bash/`                  | Bash toolkit, four levels — from one-liner to parallel & Delta Debugging.    |
 | `zsh/`                   | Same problems solved idiomatically in zsh (glob qualifiers, `zpty` REPL).    |
 | `ci/`                    | Fleet / CSV / env / flag bisectors, verify-the-verdict script.               |
+| `advanced/`              | Part IX — info-theory calculator, Bayesian bisect, HDD, compiler-pass bisect, rr/chaos, AI checkpoint bisect, supply-chain time bisect, distributed-trace bisect. |
 | `../.github/workflows/`  | `auto-bisect.yml` — GitHub Actions auto-bisect on nightly failure.            |
 
 ## Quick start

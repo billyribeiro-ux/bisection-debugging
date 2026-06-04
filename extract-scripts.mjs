@@ -91,6 +91,25 @@ const CATEGORY = {
   'flag-ddmin.mjs':              'ci',
   'bisect-env.sh':               'ci',
   'verify-culprit.sh':           'ci',
+
+  // Part IX — Advanced & theoretical
+  'channel-capacity.md':         'advanced',
+  'bisect-cost.mjs':             'advanced',
+  'bayesian-bisect.mjs':         'advanced',
+  'hdd.mjs':                     'advanced',
+  'llvm-opt-bisect.sh':          'advanced',
+  'cargo-bisect-rustc-driver.sh':'advanced',
+  'rr-bisect.sh':                'advanced',
+  'rr-reverse-bisect.sh':        'advanced',
+  'chaos-bisect.sh':             'advanced',
+  'checkpoint-eval-predicate.mjs':'advanced',
+  'model-checkpoint-bisect.mjs': 'advanced',
+  'data-shard-bisect.sh':        'advanced',
+  'supply-chain-bisect-npm.sh':  'advanced',
+  'supply-chain-bisect-pip.sh':  'advanced',
+  'check-side-effects.mjs':      'advanced',
+  'trace-span-bisect.mjs':       'advanced',
+  'session-replay-bisect.sh':    'advanced',
 };
 
 // Titles whose target path is special (lives outside scripts/).
