@@ -4,29 +4,33 @@
   "private": true,
   "description": "A principal-engineer-level curriculum on bisection debugging. Single-file HTML, all code blocks extract to runnable scripts under scripts/.",
   "type": "module",
+  "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "pnpm": ">=9"
   },
   "scripts": {
+    "preinstall":"npx --yes only-allow pnpm",
+
     "escape":    "node fix-html-escaping.mjs",
     "extract":   "node extract-scripts.mjs",
     "verify":    "./verify-scripts.sh",
 
-    "prebuild":  "npm run escape",
-    "build":     "npm run extract",
-    "postbuild": "npm run verify",
+    "prebuild":  "pnpm escape",
+    "build":     "pnpm extract",
+    "postbuild": "pnpm verify",
 
-    "pretest":   "npm run extract",
-    "test":      "npm run verify",
+    "pretest":   "pnpm extract",
+    "test":      "pnpm verify",
 
-    "dev":       "npx --yes serve@14 -l 8080 .",
-    "start":     "npm run dev",
+    "dev":       "pnpm dlx serve@14 -l 8080 .",
+    "start":     "pnpm dev",
 
     "clean":     "rm -rf scripts/foundations scripts/git-bisect scripts/file-bisect scripts/dep-build scripts/test-perf scripts/bash scripts/zsh scripts/ci scripts/advanced",
 
-    "check":     "npm run build",
-    "prepush":   "npm run check",
+    "check":     "pnpm build",
+    "prepush":   "pnpm check",
 
-    "prepare":   "node -e \"console.log('Ready. \\\"npm run dev\\\" serves the curriculum at http://localhost:8080. \\\"npm run build\\\" escapes HTML, extracts every code block to scripts/, and syntax-checks all of them.')\""
+    "prepare":   "node -e \"console.log('Ready. \\\"pnpm dev\\\" serves the curriculum at http://localhost:8080. \\\"pnpm build\\\" escapes HTML, extracts every code block to scripts/, and syntax-checks all of them.')\""
   }
 }

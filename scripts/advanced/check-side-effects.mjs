@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // check-side-effects.mjs
-// Run `npm install` for a package under a strict sandbox; flag any unexpected
+// Run `pnpm install` for a package under a strict sandbox; flag any unexpected
 // side effects (outbound network, suspicious file writes, env reads).
 //
 // USAGE (as a predicate):
@@ -13,9 +13,10 @@ const homeBefore = new Set(fs.readdirSync(process.env.HOME, { recursive: true, w
   .map(d => d.parentPath + '/' + d.name));
 
 // Strace install. firejail or bubblewrap would be stricter; this is the
-// portable baseline.
+// portable baseline. Uses `pnpm rebuild` — same surface area, but pnpm's
+// strict node_modules layout makes the strace trail easier to interpret.
 const r = spawnSync('strace', ['-f', '-e', 'trace=connect,openat,execve',
-  '-o', '/tmp/install.strace', '--', 'npm', 'rebuild'], { stdio: 'inherit' });
+  '-o', '/tmp/install.strace', '--', 'pnpm', 'rebuild'], { stdio: 'inherit' });
 if (r.status !== 0) process.exit(125);
 
 const log = fs.readFileSync('/tmp/install.strace', 'utf8');
