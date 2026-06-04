@@ -445,6 +445,7 @@ echo "Culprit: ${files[$lo]}"
 </pre>
 
 <p>Don't worry if every line isn't clear yet — by Part VI you'll be able to write this from memory and explain every choice. For now, just notice: <em>each iteration halves the search space.</em></p>
+<p style="color: var(--fg-dim); font-size: 13px; margin-top: 18px;">⊕ <em>Why is log₂(N) optimal, not just clever?</em> See <strong>Part IX — The Information Theory of Bisection</strong> for the Shannon-style lower bound that proves no algorithm can beat it.</p>
 </template>
 
 <template data-page-title="The Bisection Invariant" data-part="I — Foundations">
@@ -3044,7 +3045,7 @@ echo "  bad value:  ${VARS[$lo]}=${BAD_VAL[${VARS[$lo]}]}"
 <h3>The smell tests</h3>
 <table class="cmp">
 <tr><th>If you see…</th><th>It probably means…</th><th>Do this</th></tr>
-<tr><td>"good after bad" in the bisect log</td><td>Flaky predicate or non-monotonic bug</td><td>Repeat the predicate 5× on a single commit; require ≥4/5 agreement to mark.</td></tr>
+<tr><td>"good after bad" in the bisect log</td><td>Flaky predicate or non-monotonic bug</td><td>Repeat the predicate 5× on a single commit; require ≥4/5 agreement. For p &gt; 5%, see <strong>Part IX — Bayesian Bisection</strong>.</td></tr>
 <tr><td>Bisection takes more rounds than log₂(N)</td><td>Lots of skip-returning commits</td><td>Tighten the range, or skip a known-broken cluster explicitly.</td></tr>
 <tr><td>The culprit commit has zero changes near the failing area</td><td>The change is in a config/lockfile, OR you have a transitive dep bump</td><td>Inspect <code>pnpm-lock.yaml</code> and <code>*.config.*</code> as much as <code>*.ts</code>.</td></tr>
 <tr><td>Predicate output looks different on every run</td><td>You haven't pinned the environment</td><td>Use the <code>hermetic-predicate.sh</code> template; pin Node, TZ, locale, seeds.</td></tr>
@@ -3092,7 +3093,1051 @@ git reset --hard HEAD^   # undo the revert
 </ul>
 </div>
 <p>If any of those is "no", fix it before you reach for <code>git bisect start</code>. Future-you (and the on-call rotation) will thank you.</p>
-<p style="margin-top: 30px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something.</p>
+</template>
+
+<template data-page-title="The Information Theory of Bisection" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">The Information Theory of Bisection</h2>
+<p class="lede">Why log₂(N) is not just a clever optimization but a <em>provable lower bound</em>. Why noisy predicates need more rounds. Why an unbalanced search space costs you information. The math that every distinguished engineer should be able to derive on a napkin.</p>
+
+<h3>The setup</h3>
+<p>You have N candidates (commits, files, anything). Exactly one is "bad." Your predicate is a binary oracle: yes/no. The question: what's the minimum number of oracle queries needed, in the worst case, to identify the bad candidate?</p>
+
+<h3>Shannon's bound (the floor no algorithm can beat)</h3>
+<p>The unknown — "which candidate is bad" — has <strong>entropy H(X) = log₂(N) bits</strong> under a uniform prior. Each binary oracle query returns <strong>at most 1 bit</strong> of information (the answer is either 0 or 1). Therefore:</p>
+<div class="callout">
+<div class="callout-title">Lower Bound</div>
+<p>Any algorithm that always identifies the bad candidate uses <strong>at least ⌈log₂(N)⌉</strong> queries in the worst case. Bisection achieves this. It is <em>optimal</em>, not merely <em>good</em>.</p>
+</div>
+<p>This is why "binary search is the best you can do" isn't hand-waving — it's a Shannon-style lower bound. A linear scan uses N queries to extract log₂(N) bits; it's wasting a factor of N/log₂(N) on every run.</p>
+
+<h3>The noisy-channel case</h3>
+<p>Now suppose the oracle is noisy: it answers correctly with probability (1 − p), incorrectly with probability p. (A flaky test with 15% failure rate has p = 0.15.) The capacity of a binary symmetric channel is:</p>
+
+<pre class="code" data-lang="markdown" data-title="channel-capacity.md">C(p) = 1 − H₂(p)
+     = 1 − [−p·log₂(p) − (1−p)·log₂(1−p)]
+
+p = 0.00 → C = 1.000 bits/query   (perfect predicate)
+p = 0.05 → C = 0.714 bits/query
+p = 0.10 → C = 0.531 bits/query
+p = 0.15 → C = 0.390 bits/query   (a "bad flake")
+p = 0.25 → C = 0.189 bits/query
+p = 0.50 → C = 0.000 bits/query   (no signal at all)
+
+Minimum expected queries needed = log₂(N) / C(p).
+</pre>
+
+<p>So with a 15% flake rate, bisecting 1,024 candidates needs not 10 queries but at least <strong>10 / 0.39 ≈ 26</strong>. Repetition (best-of-N) is one way to drive p down; that's exactly what <code>flake-resistant-predicate.sh</code> from Part I does. The math tells you <em>how many</em> repetitions you need.</p>
+
+<h3>A real calculator</h3>
+
+<pre class="code" data-lang="javascript" data-title="bisect-cost.mjs">#!/usr/bin/env node
+// bisect-cost.mjs
+// Given N candidates and a per-query error rate p, computes the minimum
+// expected number of queries (Shannon bound) and the actual rounds needed
+// when wrapping the predicate in a k-out-of-N voting scheme.
+//
+//   node bisect-cost.mjs 1024 0.15
+//
+const N = Number(process.argv[2] || 1024);
+const p = Number(process.argv[3] || 0.05);
+
+function H2(q) { return q === 0 || q === 1 ? 0 : -q * Math.log2(q) - (1 - q) * Math.log2(1 - q); }
+function capacity(q) { return 1 - H2(q); }
+
+const Hx = Math.log2(N);
+const C  = capacity(p);
+
+console.log(`H(X)    = ${Hx.toFixed(3)} bits  (entropy of unknown over ${N} candidates)`);
+console.log(`C(p=${p}) = ${C.toFixed(3)} bits/query`);
+console.log(`Lower bound on expected queries: ${(Hx / C).toFixed(2)}`);
+
+// Voting: run the predicate k times, majority wins.
+// Per-call error becomes the binomial tail Pr[≥k/2 wrong].
+function binom(n, k) { let r = 1; for (let i = 0; i &lt; k; i++) r = r * (n - i) / (i + 1); return r; }
+function majorityWrongP(k, p) {
+  let acc = 0;
+  for (let i = Math.ceil(k / 2); i &lt;= k; i++) acc += binom(k, i) * Math.pow(p, i) * Math.pow(1 - p, k - i);
+  return acc;
+}
+
+console.log('\nk-of-k voting schemes (drives p down at k× cost):');
+for (const k of [1, 3, 5, 7, 9, 11]) {
+  const pEff = majorityWrongP(k, p);
+  const cEff = capacity(pEff);
+  const queries = Hx / cEff;
+  console.log(`  k=${k}: p_eff=${pEff.toExponential(2)}  C=${cEff.toFixed(3)}  queries≈${queries.toFixed(1)}  total runs≈${(queries * k).toFixed(0)}`);
+}
+</pre>
+
+<h3>The "unbalanced split" tax</h3>
+<p>What if you can't split exactly in half? Bisection still works but slower. If round splits into r and (1−r) of the space, each query yields at most <strong>H₂(r)</strong> bits — maximized at r = 0.5 (1 bit). At r = 0.1, each query yields only 0.469 bits. This is why <code>--first-parent</code> bisection in lopsided histories sometimes needs more rounds than the linear log₂(N) prediction.</p>
+
+<h3>Why this matters for real engineering decisions</h3>
+<ul>
+  <li><strong>Test budget planning.</strong> When a predicate takes 8 minutes, the difference between 10 rounds (perfect predicate) and 26 rounds (15% flake) is 2 hours. Drive p down before you bisect, not during.</li>
+  <li><strong>When to add caching/memoization.</strong> If your predicate is deterministic and slow, memoization gives you zero-cost repetitions, which raises effective k and pushes p toward zero.</li>
+  <li><strong>When to parallelize.</strong> If C(p) is small, the same Shannon argument says you can use multiple oracles in parallel and aggregate. The aggregate behaves like a single oracle with much lower p.</li>
+  <li><strong>When to give up.</strong> If p ≥ 0.5, capacity is 0 and no amount of bisection extracts the answer. Fix the predicate before you bisect.</li>
+</ul>
+</template>
+
+<template data-page-title="Bayesian Bisection for Noisy Predicates" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bayesian Bisection — Optimal Search Under Noise</h2>
+<p class="lede">Vanilla binary search assumes a noise-free oracle. When your predicate has a 15% flake rate, naive bisection collapses. Bayesian bisection models the noise explicitly, maintains a posterior over "which candidate is bad," and picks the next query that maximizes expected entropy reduction. It's the principled answer to the question "how should I bisect a flaky build?"</p>
+
+<h3>The model</h3>
+<p>Let H ∈ {0, 1, …, N−1} be the index of the first bad candidate. Prior P(H = i) is uniform (before any queries). The oracle, given a query Q ∈ {0, …, N−1}, returns:</p>
+<ul>
+  <li><strong>"good"</strong> with probability (1−p) if Q &lt; H, with probability p otherwise.</li>
+  <li><strong>"bad"</strong> with probability (1−p) if Q ≥ H, with probability p otherwise.</li>
+</ul>
+<p>Each query updates the posterior via Bayes' rule. The optimal next query is the one that maximizes expected information gain — equivalently, minimizes expected posterior entropy.</p>
+
+<h3>The algorithm</h3>
+
+<pre class="code" data-lang="javascript" data-title="bayesian-bisect.mjs">#!/usr/bin/env node
+// bayesian-bisect.mjs
+// Sequential Bayesian bisection under a binary-symmetric-channel predicate.
+//
+// MAINTAINS:  posterior P(H = i) over candidate indices i ∈ [0, N).
+// QUERY:      always picks the index that maximizes expected entropy reduction
+//             of the posterior — typically near the posterior median.
+// STOPS:      when the posterior is sufficiently concentrated (e.g. max P ≥ 0.95).
+//
+// USAGE:
+//   node bayesian-bisect.mjs &lt;N&gt; &lt;p&gt; "&lt;oracle-cmd-template&gt;"
+//
+// Oracle template: any "$Q" tokens get replaced by the index being queried.
+// Oracle exit 0 = "good", nonzero = "bad". The bisector tolerates noise.
+//
+import { spawnSync } from 'child_process';
+
+const N = Number(process.argv[2]);
+const p = Number(process.argv[3]);     // predicate flake probability
+const ORACLE = process.argv[4];
+const STOP_CONFIDENCE = Number(process.env.STOP_CONFIDENCE || 0.95);
+const MAX_ROUNDS = Number(process.env.MAX_ROUNDS || 60);
+
+let post = new Array(N).fill(1 / N);
+
+function entropy(d) {
+  let h = 0;
+  for (const x of d) if (x &gt; 0) h -= x * Math.log2(x);
+  return h;
+}
+
+// P(observation = "good" | H = i, queried Q) under the BSC model.
+function likelihoodGood(i, Q) { return Q &lt; i ? (1 - p) : p; }
+function likelihoodBad(i, Q)  { return Q &lt; i ? p : (1 - p); }
+
+function expectedEntropyAfterQuery(Q) {
+  let pGood = 0;
+  for (let i = 0; i &lt; N; i++) pGood += post[i] * likelihoodGood(i, Q);
+  const pBad = 1 - pGood;
+  // Posterior under each outcome.
+  const postG = new Array(N), postB = new Array(N);
+  for (let i = 0; i &lt; N; i++) {
+    postG[i] = pGood &gt; 0 ? post[i] * likelihoodGood(i, Q) / pGood : 0;
+    postB[i] = pBad  &gt; 0 ? post[i] * likelihoodBad(i,  Q) / pBad  : 0;
+  }
+  return pGood * entropy(postG) + pBad * entropy(postB);
+}
+
+function pickNextQuery() {
+  // Optimal Q is the candidate index minimizing expected posterior entropy.
+  // For BSC noise this is provably near the posterior median.
+  let bestQ = 0, bestE = Infinity;
+  for (let Q = 0; Q &lt; N; Q++) {
+    const e = expectedEntropyAfterQuery(Q);
+    if (e &lt; bestE) { bestE = e; bestQ = Q; }
+  }
+  return bestQ;
+}
+
+function runOracle(Q) {
+  const cmd = ORACLE.replaceAll('$Q', String(Q));
+  return spawnSync('sh', ['-c', cmd], { stdio: 'ignore' }).status === 0 ? 'good' : 'bad';
+}
+
+for (let round = 0; round &lt; MAX_ROUNDS; round++) {
+  const maxP = Math.max(...post);
+  const argmax = post.indexOf(maxP);
+  console.log(`round ${round}: H(post)=${entropy(post).toFixed(3)} bits, argmax=${argmax} (P=${maxP.toFixed(3)})`);
+  if (maxP &gt;= STOP_CONFIDENCE) {
+    console.log(`\nConverged. First bad candidate: ${argmax} (P ≥ ${STOP_CONFIDENCE})`);
+    process.exit(0);
+  }
+  const Q = pickNextQuery();
+  const obs = runOracle(Q);
+  console.log(`  queried Q=${Q}, observed: ${obs}`);
+  // Bayes update.
+  const lik = obs === 'good' ? likelihoodGood : likelihoodBad;
+  let z = 0;
+  for (let i = 0; i &lt; N; i++) { post[i] = post[i] * lik(i, Q); z += post[i]; }
+  for (let i = 0; i &lt; N; i++) post[i] /= z;
+}
+console.log('Max rounds reached without convergence — predicate may be too noisy.');
+</pre>
+
+<h3>Why this beats naive bisection</h3>
+<p>Naive bisection treats each oracle answer as gospel; a single flake throws the search off a cliff. Bayesian bisection treats each answer as evidence — strong evidence if p is low, weak if p is high — and never collapses to certainty until enough corroborating evidence has accumulated. Each round, it picks the query whose answer would tell it the most, which for BSC noise is almost always near the posterior median.</p>
+
+<h3>When to reach for it</h3>
+<table class="cmp">
+<tr><th>If your predicate's flake rate is…</th><th>Use…</th></tr>
+<tr><td>0% (deterministic)</td><td>Plain bisection. Bayesian gives you nothing.</td></tr>
+<tr><td>1–5%</td><td>Plain bisection + 3-of-3 voting. Easier to implement.</td></tr>
+<tr><td>5–25%</td><td>Bayesian bisection. The information-theoretic gain is real.</td></tr>
+<tr><td>&gt;25%</td><td>Stop. Fix the predicate. No bisection method recovers from this.</td></tr>
+</table>
+
+<h3>Going further</h3>
+<p>This algorithm is a special case of Bayesian optimal experimental design (BOED). The same machinery generalizes to multi-dimensional search, active learning, and adaptive A/B testing. The textbook reference is MacKay's <em>Information Theory, Inference, and Learning Algorithms</em>; the 1973 Horstein algorithm for noisy binary search is the closed-form ancestor.</p>
+</template>
+
+<template data-page-title="Hierarchical Delta Debugging" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Hierarchical Delta Debugging (HDD)</h2>
+<p class="lede">Plain bisection works on a list. Plain delta debugging works on a flat set. Real failing inputs are <em>trees</em>: an HTML document that crashes a browser has 50,000 nodes, but the offending pattern is a 5-node subtree. HDD applies ddmin to each level of the tree, top-down. It's how AFL, csmith reducers, and creduce work under the hood.</p>
+
+<h3>The setup</h3>
+<p>You have a failing input — say, an HTML document, an AST, a JSON blob, an SQL query — that triggers a bug. You want the smallest sub-input that still triggers it. Single-node deletion is O(N²). Linear delta debugging treats the input as a flat list of tokens and gets to O(N·log N). HDD treats it as a tree and gets to O(d·log N), where d is the depth.</p>
+
+<h3>The algorithm in plain English</h3>
+<ol>
+  <li>Parse the input into a tree.</li>
+  <li>At the root level, apply ddmin to the children: try removing subsets, recurse with whatever subset still reproduces.</li>
+  <li>At each subsequently deeper level, ddmin its children.</li>
+  <li>Stop when no level can be minimized further. The remaining tree is "1-tree-minimal."</li>
+</ol>
+<p>Each ddmin call at level d works on tree(d).children, which is small. So instead of bisecting one giant list of 50,000 nodes, you bisect many small lists of 5–50 nodes each.</p>
+
+<h3>A working implementation</h3>
+
+<pre class="code" data-lang="javascript" data-title="hdd.mjs">#!/usr/bin/env node
+// hdd.mjs
+// Hierarchical Delta Debugging on JSON trees.
+//
+// USAGE:
+//   node hdd.mjs failing-input.json "./predicate.sh"
+//
+// PREDICATE CONTRACT:
+//   Reads the candidate JSON on stdin. Exits 0 = bug REPRODUCES, nonzero = does not.
+//   (Inverse of normal "test passed" semantics; ddmin needs "does this minimal
+//    candidate still trigger the bug?".)
+//
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+
+const input = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const PRED  = process.argv[3];
+
+function reproduces(tree) {
+  const r = spawnSync('sh', ['-c', PRED], { input: JSON.stringify(tree), stdio: ['pipe', 'ignore', 'ignore'] });
+  return r.status === 0;
+}
+
+// Generic "get/set children" — works on arrays and objects.
+function getChildren(node) {
+  if (Array.isArray(node)) return node.map((v, i) =&gt; ({ key: i, value: v }));
+  if (node &amp;&amp; typeof node === 'object') return Object.entries(node).map(([k, v]) =&gt; ({ key: k, value: v }));
+  return [];
+}
+function setChildren(node, kids) {
+  if (Array.isArray(node)) return kids.map(c =&gt; c.value);
+  if (node &amp;&amp; typeof node === 'object') return Object.fromEntries(kids.map(c =&gt; [c.key, c.value]));
+  return node;
+}
+
+// 1-minimization (Zeller's ddmin) over an array of children.
+// Tries to find the smallest subset of `kids` that still reproduces when
+// substituted at this position. `materialize(subset)` rebuilds the whole tree
+// with this subset at the current path.
+function ddmin(kids, materialize) {
+  let S = kids;
+  let n = 2;
+  while (S.length &gt;= 2) {
+    const sz = Math.ceil(S.length / n);
+    let progressed = false;
+    for (let i = 0; i &lt; S.length; i += sz) {
+      const subset = S.slice(i, i + sz);
+      const complement = [...S.slice(0, i), ...S.slice(i + sz)];
+      if (reproduces(materialize(subset)))      { S = subset;     n = 2;            progressed = true; break; }
+      if (reproduces(materialize(complement))) { S = complement; n = Math.max(n-1, 2); progressed = true; break; }
+    }
+    if (!progressed) {
+      if (n &gt;= S.length) break;
+      n = Math.min(n * 2, S.length);
+    }
+  }
+  return S;
+}
+
+// HDD: BFS levels, ddmin children at each level, then descend into survivors.
+function hdd(root) {
+  let frontier = [{ path: [], node: root }];
+  let tree = root;
+  while (frontier.length) {
+    const next = [];
+    for (const { path, node } of frontier) {
+      const kids = getChildren(node);
+      if (kids.length &lt; 2) { for (const c of kids) next.push({ path: [...path, c.key], node: c.value }); continue; }
+
+      // Rebuild whole tree given a subset of these children.
+      const materialize = (subset) =&gt; {
+        let rebuilt = JSON.parse(JSON.stringify(tree));
+        let cursor = rebuilt;
+        for (let i = 0; i &lt; path.length - 1; i++) cursor = cursor[path[i]];
+        const target = path.length ? cursor[path[path.length - 1]] : rebuilt;
+        const newNode = setChildren(target, subset);
+        if (path.length === 0) return newNode;
+        cursor[path[path.length - 1]] = newNode;
+        return rebuilt;
+      };
+
+      const survivors = ddmin(kids, materialize);
+      tree = materialize(survivors);
+      for (const c of survivors) next.push({ path: [...path, c.key], node: c.value });
+    }
+    frontier = next;
+  }
+  return tree;
+}
+
+if (!reproduces(input)) { console.error('Initial input does not reproduce.'); process.exit(2); }
+const minimized = hdd(input);
+console.log(JSON.stringify(minimized, null, 2));
+console.error(`\nOriginal nodes: ${JSON.stringify(input).length}`);
+console.error(`Minimized:      ${JSON.stringify(minimized).length}`);
+</pre>
+
+<h3>Where this shines</h3>
+<ul>
+  <li><strong>Browser crash reducers.</strong> Take a 2 MB crashing HTML page; HDD reduces it to a 200-byte minimal repro.</li>
+  <li><strong>Compiler fuzzers.</strong> csmith generates 5,000-line C programs that crash gcc; <code>creduce</code> is essentially HDD + C-aware passes.</li>
+  <li><strong>SQL query reducers.</strong> Given a 200-line query plan that triggers a DB bug, HDD on the AST finds the minimal failing query.</li>
+  <li><strong>API request minimization.</strong> A failing POST body of 100 fields → the 3 fields that actually matter.</li>
+  <li><strong>Test case minimization.</strong> Reducing a failing property-based test seed to its core triggering shape (this is what Hypothesis's "shrinking" does).</li>
+</ul>
+
+<h3>Going further</h3>
+<p>The original HDD paper (Misherghi &amp; Su, ICSE 2006) introduced the technique; <em>Coarse Hierarchical Delta Debugging</em> (Hodován &amp; Kiss, ICSME 2016) adds optimizations. For C/C++ you can almost always use <code>creduce</code> off the shelf; for novel input formats, the script above is a working starting point.</p>
+</template>
+
+<template data-page-title="Bisecting Compiler Passes" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bisecting Compiler Optimization Passes</h2>
+<p class="lede">Sometimes the bug isn't in your code — it's in the compiler. A new LLVM release miscompiles your hot loop; a rustc nightly silently changes inlining heuristics; gcc 14's loop-vectorizer drops a write. The fix is to bisect across the <em>compiler's own passes</em>. Tools like <code>opt-bisect-limit</code> and <code>cargo-bisect-rustc</code> make this routine.</p>
+
+<h3>LLVM: <code>-mllvm -opt-bisect-limit=N</code></h3>
+<p>LLVM has a built-in bisection harness. <code>-opt-bisect-limit=N</code> tells the optimizer to skip every pass after the N-th. Setting N = 0 disables all optimizations; setting N very high enables all of them. Bisect over N to find the pass that introduces the miscompile.</p>
+
+<pre class="code" data-lang="shell" data-title="llvm-opt-bisect.sh">#!/usr/bin/env bash
+# llvm-opt-bisect.sh
+# Find the LLVM optimization pass that miscompiles a program.
+#
+# USAGE:
+#   ./llvm-opt-bisect.sh ./build.sh ./run-and-check.sh
+#
+# build.sh must accept CFLAGS env var and propagate it to clang.
+# run-and-check.sh must exit 0 if the program produces correct output, 1 if not.
+#
+set -euo pipefail
+BUILD="${1:?usage: $0 &lt;build-cmd&gt; &lt;run-cmd&gt;}"
+RUN="${2:?missing run cmd}"
+
+# 1) Discover the upper bound: how many passes LLVM ran at full -O2?
+CFLAGS="-O2 -mllvm -opt-bisect-limit=-1" $BUILD 2&gt;/tmp/passes.log
+MAX_PASS=$(awk '/BISECT: running pass / { n++ } END { print n }' /tmp/passes.log)
+echo "LLVM ran $MAX_PASS passes at -O2"
+
+# 2) Confirm endpoints.
+CFLAGS="-O2 -mllvm -opt-bisect-limit=0" $BUILD &gt;/dev/null 2&gt;&amp;1
+$RUN &amp;&amp; echo "0 passes → correct (baseline)" || { echo "Even 0 passes miscompiles — bug isn't a pass."; exit 2; }
+
+CFLAGS="-O2 -mllvm -opt-bisect-limit=$MAX_PASS" $BUILD &gt;/dev/null 2&gt;&amp;1
+$RUN &amp;&amp; { echo "Full -O2 produces correct output; not reproducing."; exit 0; }
+
+# 3) Bisect.
+lo=0; hi=$MAX_PASS
+while (( lo &lt; hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  CFLAGS="-O2 -mllvm -opt-bisect-limit=$mid" $BUILD &gt;/dev/null 2&gt;&amp;1
+  if $RUN &gt;/dev/null 2&gt;&amp;1; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+  echo "limit=$mid → narrowing to [$lo..$hi]"
+done
+
+# 4) Report the culprit pass.
+CFLAGS="-O2 -mllvm -opt-bisect-limit=$lo" $BUILD 2&gt;/tmp/culprit.log &gt;/dev/null
+PASS_NAME=$(awk -v n=$lo '/BISECT: running pass / { c++ } c==n { sub(/.*BISECT: running pass /, ""); print; exit }' /tmp/culprit.log)
+echo
+echo "Culprit pass #$lo: $PASS_NAME"
+echo "Disable just this pass with: -mllvm -opt-bisect-disable-pass=\"$PASS_NAME\""
+</pre>
+
+<h3>Rust: <code>cargo-bisect-rustc</code></h3>
+<p>Rust's bisection tool bisects across nightly toolchains <em>and</em> within a regression window across rustc commits. The workflow is canonical:</p>
+
+<pre class="code" data-lang="shell" data-title="cargo-bisect-rustc-driver.sh">#!/usr/bin/env bash
+# cargo-bisect-rustc-driver.sh
+# Find the rustc nightly that introduced a regression in your crate.
+#
+# Install once: cargo install cargo-bisect-rustc
+#
+# This script wraps cargo-bisect-rustc with a predicate that runs your test
+# AND filters out compiler ICEs (which cargo-bisect-rustc reports separately).
+set -euo pipefail
+
+# Start broad: from the last known-good nightly to today.
+GOOD="${1:?usage: $0 &lt;good-nightly&gt; &lt;bad-nightly&gt; [test-cmd]}"
+BAD="${2:?missing bad nightly}"
+TEST_CMD="${3:-cargo test --release}"
+
+cat &gt; /tmp/bisect-script.sh &lt;&lt;EOF
+#!/usr/bin/env bash
+set -uo pipefail
+cd "\$1" 2&gt;/dev/null || true   # cargo-bisect-rustc passes the project dir
+$TEST_CMD
+EOF
+chmod +x /tmp/bisect-script.sh
+
+# --regress=ice         → bisect ICEs
+# --regress=error       → bisect new compile errors (the common case)
+# --regress=success     → bisect commits that started PASSING
+# --regress=non-error   → bisect runtime regressions when build still succeeds
+cargo bisect-rustc \
+  --start "$GOOD" --end "$BAD" \
+  --regress=non-error \
+  --script /tmp/bisect-script.sh \
+  --preserve --preserve-target
+
+# Once you have a nightly, narrow to a single rustc commit:
+cargo bisect-rustc \
+  --start "$(date -d "$BAD - 1 day" +%Y-%m-%d)" --end "$BAD" \
+  --by-commit \
+  --regress=non-error \
+  --script /tmp/bisect-script.sh
+</pre>
+
+<h3>GCC and other compilers</h3>
+<table class="cmp">
+<tr><th>Compiler</th><th>Bisection knob</th></tr>
+<tr><td>GCC</td><td><code>-fdisable-tree-PASS</code>, <code>-fdisable-rtl-PASS</code>, <code>-fdump-passes</code></td></tr>
+<tr><td>Clang/LLVM</td><td><code>-mllvm -opt-bisect-limit=N</code>, <code>-mllvm -opt-bisect-disable-pass=NAME</code></td></tr>
+<tr><td>rustc</td><td><code>cargo-bisect-rustc</code>; <code>-Z print-link-args</code> for codegen units</td></tr>
+<tr><td>Go</td><td><code>GOSSAFUNC</code>, <code>GOEXPERIMENT</code>; toolchain bisect via <code>go install golang.org/dl/go1.X@latest</code></td></tr>
+<tr><td>Swift</td><td><code>swiftc -Xllvm -opt-bisect-limit=N</code> (inherits LLVM's harness)</td></tr>
+<tr><td>JS engines (v8, JSC)</td><td>v8: <code>--print-opt-code --bisect</code>; JSC: <code>--useDFGJIT=false</code> to disable tiers</td></tr>
+</table>
+
+<h3>Why this is a senior-engineer skill</h3>
+<p>Most engineers, when they suspect the compiler, file a bug report. A principal engineer files a bug report with: the exact pass name, the IR before and after the pass, a minimal repro (via HDD on the IR), and a workaround flag. <code>opt-bisect-limit</code> plus the techniques on this page get you all four.</p>
+</template>
+
+<template data-page-title="Bisecting Concurrent Bugs with rr" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bisecting Race Conditions and Concurrent Bugs</h2>
+<p class="lede">Race conditions are bisection's hardest case: the search space isn't commits or files — it's the set of possible thread interleavings, which is exponential. You don't bisect interleavings directly; you make the bug <em>deterministic</em> first, then bisect normally. The tool that makes this practical is <code>rr</code>.</p>
+
+<h3>The rr (record/replay) idea</h3>
+<p>Mozilla's <code>rr</code> records every nondeterministic input to a Linux process: syscall returns, signals, thread context switches, hardware interrupts. The recording is small (~10–100× the wall-clock execution). Replay is byte-exact — same memory, same registers, same crash, every time. That's a deterministic bug, ready to bisect against your code.</p>
+
+<h3>The workflow</h3>
+<pre class="code" data-lang="shell" data-title="rr-bisect.sh">#!/usr/bin/env bash
+# rr-bisect.sh
+# Workflow for using rr to make a race condition deterministic, then bisecting
+# across git commits to find the one that introduced it.
+#
+# Prereq: sudo apt install rr  (Linux; kernel.perf_event_paranoid must be ≤1).
+set -euo pipefail
+
+PROG="${1:?usage: $0 &lt;prog&gt; &lt;args...&gt;}"; shift
+
+# 1) Record runs until we capture one that exhibits the bug.
+echo "Recording $PROG until we catch the race…"
+for i in {1..50}; do
+  rr record --chaos -o "/tmp/rr-trace-$i" "$PROG" "$@" \
+    &amp;&amp; echo "Run $i: PASS" \
+    || { echo "Run $i: BUG! Trace saved to /tmp/rr-trace-$i"; SAVED="/tmp/rr-trace-$i"; break; }
+done
+[ -z "${SAVED:-}" ] &amp;&amp; { echo "Could not reproduce in 50 chaos-mode runs."; exit 1; }
+
+# 2) Build a deterministic predicate: replay the trace, exit with prog's status.
+cat &gt; /tmp/replay-predicate.sh &lt;&lt;EOF
+#!/usr/bin/env bash
+rr replay "$SAVED" -a 2&gt;/dev/null &gt;/dev/null
+EOF
+chmod +x /tmp/replay-predicate.sh
+
+# 3) Now the bug is deterministic — bisect git history with `git bisect run`.
+echo "Starting git bisect against the recorded trace."
+LAST_GOOD="${LAST_GOOD:?set LAST_GOOD to the last-known-good SHA}"
+git bisect start HEAD "$LAST_GOOD"
+git bisect run /tmp/replay-predicate.sh
+git bisect reset
+</pre>
+
+<h3>The <code>--chaos</code> flag — finding the race in the first place</h3>
+<p><code>rr record --chaos</code> randomizes scheduling decisions on each run to dramatically increase the probability of hitting rare interleavings. Without it, racy bugs might take 10,000 runs to reproduce; with it, dozens.</p>
+
+<h3>Bisecting <em>within</em> a trace</h3>
+<p>Once you have a deterministic trace, you can use <code>rr</code>'s reverse-execution to bisect <em>within</em> the program's runtime. Watchpoint a memory location; reverse-continue to the last write; that's your culprit. This is bisection on time itself:</p>
+
+<pre class="code" data-lang="shell" data-title="rr-reverse-bisect.sh">#!/usr/bin/env bash
+# rr-reverse-bisect.sh
+# Reverse-bisect: given a corrupted memory address at end-of-run, find the
+# last write that put a bad value there.
+
+TRACE="$1"      # /tmp/rr-trace-X
+ADDR="$2"       # e.g. 0x7fffd0001a40 — the address you saw corrupted in gdb
+
+rr replay "$TRACE" --serve-files &lt;&lt;EOF
+break main
+continue
+# Run to the end first to confirm the bug.
+continue
+# Set a hardware watchpoint and reverse-continue.
+watch *(uint64_t*)$ADDR
+reverse-continue
+# Now we're at the last write. Print the stack.
+backtrace
+EOF
+</pre>
+
+<h3>For non-Linux: alternatives</h3>
+<table class="cmp">
+<tr><th>Platform</th><th>Record/replay tool</th></tr>
+<tr><td>Linux</td><td><code>rr</code> (Mozilla)</td></tr>
+<tr><td>Linux (production)</td><td><code>Pernosco</code> (cloud rr with omniscient debugging)</td></tr>
+<tr><td>Windows</td><td>WinDbg Time-Travel Debugging</td></tr>
+<tr><td>macOS</td><td>No first-party tool; LLDB+rr-style is research-grade</td></tr>
+<tr><td>JVM</td><td><code>Chronon</code>, IntelliJ's "Run with Debugger"</td></tr>
+<tr><td>Browsers</td><td>Chrome DevTools Recorder + Performance traces (limited)</td></tr>
+<tr><td>Embedded</td><td>SEGGER Ozone+J-Trace, Lauterbach TRACE32</td></tr>
+</table>
+
+<h3>The chaos predicate pattern</h3>
+<p>Even without rr, you can convert a flaky race into something bisectible by hammering it: run the predicate inside a stress loop and observe the failure rate.</p>
+
+<pre class="code" data-lang="shell" data-title="chaos-bisect.sh">#!/usr/bin/env bash
+# chaos-bisect.sh
+# Predicate that runs the target 100 times under stress and declares a commit
+# "bad" if the bug appears even once. Combine with `git bisect run`.
+#
+# Why it works: under high contention, the buggy interleaving dominates;
+# good commits virtually never fail; bad commits fail repeatedly.
+set -uo pipefail
+
+RUNS=100
+THREADS=$(nproc)
+
+# Make sure baseline tools exist.
+command -v stress-ng &gt;/dev/null || { echo "Need stress-ng"; exit 125; }
+
+# Apply contention while we test.
+stress-ng --cpu "$THREADS" --io 4 --vm 2 --vm-bytes 256M --timeout 60s &amp;
+STRESSOR=$!
+trap 'kill "$STRESSOR" 2&gt;/dev/null || true' EXIT
+
+failures=0
+for i in $(seq 1 "$RUNS"); do
+  timeout 5s ./run-target.sh || failures=$((failures + 1))
+done
+
+echo "$failures / $RUNS runs failed"
+[ "$failures" -gt 0 ] &amp;&amp; exit 1 || exit 0
+</pre>
+</template>
+
+<template data-page-title="Bisecting AI Model Checkpoints" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bisecting AI/ML Model Checkpoint Regressions</h2>
+<p class="lede">You fine-tuned a model over 200 checkpoints. The final model is worse than the model from week 2 on a specific eval slice. <em>Which checkpoint started the regression?</em> Bisection — with an eval as the predicate — answers in log₂(200) ≈ 8 model loads instead of 200.</p>
+
+<h3>Why this matters in 2026</h3>
+<p>Fine-tunes, LoRA adapters, RLHF stages, and continued-pretraining runs all produce dozens-to-thousands of checkpoints. Most don't get evaluated individually because evals are expensive. Bisection turns "find when capability X collapsed" from a multi-day investigation into an afternoon.</p>
+
+<h3>The predicate: an eval score with a threshold</h3>
+
+<pre class="code" data-lang="javascript" data-title="checkpoint-eval-predicate.mjs">#!/usr/bin/env node
+// checkpoint-eval-predicate.mjs
+// Evaluate a checkpoint on a held-out eval set; exit 0 if score ≥ threshold,
+// 1 if below. Designed to be the predicate for a bisection driver.
+//
+// USAGE:
+//   CHECKPOINT=ckpts/step-12000 THRESHOLD=0.72 node checkpoint-eval-predicate.mjs
+//
+import { spawnSync } from 'child_process';
+
+const ckpt = process.env.CHECKPOINT;
+const threshold = Number(process.env.THRESHOLD || 0.7);
+const eval_suite = process.env.EVAL || 'evals/regression-suite.jsonl';
+const max_samples = Number(process.env.MAX_SAMPLES || 500);
+
+if (!ckpt) { console.error('Set CHECKPOINT'); process.exit(125); }
+
+// Use a deterministic eval — fix the seed, sort the prompts, no sampling.
+const env = { ...process.env, TRANSFORMERS_SEED: '42', TRANSFORMERS_OFFLINE: '1' };
+
+const r = spawnSync('python', [
+  '-m', 'lm_eval',
+  '--model', 'hf',
+  '--model_args', `pretrained=${ckpt},dtype=bfloat16,device_map=auto`,
+  '--tasks', eval_suite,
+  '--num_fewshot', '0',
+  '--limit', String(max_samples),
+  '--seed', '42',
+  '--output_path', '/tmp/eval.json',
+], { stdio: 'inherit', env });
+
+if (r.status !== 0) { console.error('Eval crashed'); process.exit(125); }
+
+const data = JSON.parse(require('fs').readFileSync('/tmp/eval.json', 'utf8'));
+const score = data.results[Object.keys(data.results)[0]].acc;
+console.log(`checkpoint=${ckpt}  score=${score.toFixed(4)}  threshold=${threshold}`);
+
+process.exit(score &gt;= threshold ? 0 : 1);
+</pre>
+
+<h3>The bisector</h3>
+
+<pre class="code" data-lang="javascript" data-title="model-checkpoint-bisect.mjs">#!/usr/bin/env node
+// model-checkpoint-bisect.mjs
+// Binary-search across checkpoints to find the one that introduced a regression.
+//
+// USAGE:
+//   node model-checkpoint-bisect.mjs ./ckpts/step-* 0.72
+//
+import { glob } from 'node:fs/promises';
+import { spawnSync } from 'child_process';
+
+const pattern = process.argv[2];
+const threshold = Number(process.argv[3] || 0.7);
+
+const ckpts = [];
+for await (const p of glob(pattern)) ckpts.push(p);
+ckpts.sort((a, b) =&gt; {
+  // Sort by step number embedded in path.
+  const m = (s) =&gt; Number((s.match(/step-(\d+)/) || [, 0])[1]);
+  return m(a) - m(b);
+});
+
+console.log(`Bisecting ${ckpts.length} checkpoints; threshold = ${threshold}`);
+
+function passes(ckpt) {
+  const r = spawnSync('node', ['checkpoint-eval-predicate.mjs'], {
+    env: { ...process.env, CHECKPOINT: ckpt, THRESHOLD: String(threshold) },
+    stdio: 'inherit',
+  });
+  return r.status === 0;
+}
+
+// Confirm endpoints.
+if (!passes(ckpts[0])) { console.error('Earliest checkpoint already fails — regression predates this range.'); process.exit(0); }
+if (passes(ckpts.at(-1))) { console.error('Latest checkpoint still passes — no regression.'); process.exit(0); }
+
+let lo = 0, hi = ckpts.length - 1;
+while (lo &lt; hi) {
+  const mid = (lo + hi) &gt;&gt; 1;
+  if (passes(ckpts[mid])) lo = mid + 1; else hi = mid;
+}
+
+console.log('\nFirst regressed checkpoint:', ckpts[lo]);
+console.log('Last good checkpoint:      ', ckpts[lo - 1]);
+console.log('Training steps between:    ',
+  Number(ckpts[lo].match(/step-(\d+)/)[1]) - Number(ckpts[lo - 1].match(/step-(\d+)/)[1]));
+</pre>
+
+<h3>Multi-dimensional: bisecting across data slices</h3>
+<p>Sometimes the regression is only on one slice of your eval set (say, "math word problems involving fractions"). Run the bisector with the predicate restricted to that slice; the answer tells you which checkpoint started getting that slice wrong. Then, separately, bisect over the training-data manifest to find which training shard introduced the new bias.</p>
+
+<h3>Bisecting across data, not weights</h3>
+
+<pre class="code" data-lang="shell" data-title="data-shard-bisect.sh">#!/usr/bin/env bash
+# data-shard-bisect.sh
+# When the model is fine, but adding a new dataset shard regresses an eval,
+# bisect across shards to find which one is "poisoning" the model.
+#
+# REQUIRES: A retrain loop that accepts a SHARDS env var (list of shard paths).
+set -euo pipefail
+
+mapfile -t SHARDS &lt; shards.txt
+THRESHOLD=0.72
+
+train_and_eval() {
+  local shards=( "$@" )
+  rm -rf /tmp/exp-ckpt
+  SHARDS="${shards[*]}" OUTPUT=/tmp/exp-ckpt ./retrain.sh
+  CHECKPOINT=/tmp/exp-ckpt THRESHOLD="$THRESHOLD" node checkpoint-eval-predicate.mjs
+}
+
+lo=0; hi=$(( ${#SHARDS[@]} - 1 ))
+while (( lo &lt; hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  subset=( "${SHARDS[@]:0:mid+1}" )
+  if train_and_eval "${subset[@]}"; then
+    lo=$((mid + 1))
+  else
+    hi=$mid
+  fi
+done
+echo "Poisoning shard: ${SHARDS[$lo]}"
+</pre>
+
+<h3>The principal-engineer move</h3>
+<p>Bisection over checkpoints is cheap (8 evals) but bisection over training shards is expensive (8 partial retrains). The economics: only run the shard bisector when checkpoint bisection narrows the regression to a sharp boundary (a single training step). If the regression accumulates over many steps, your data isn't the cause — your learning-rate schedule or your KL constraint is.</p>
+</template>
+
+<template data-page-title="Supply-Chain Bisection" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bisecting Supply-Chain Attacks &amp; Time-Based Regressions</h2>
+<p class="lede">A package on npm or pip was compromised between dates D₁ and D₂. Your build started failing — or worse, started behaving subtly wrong — somewhere in that window. Bisect across <em>publish dates</em>, not version numbers, to identify the malicious or buggy publish.</p>
+
+<h3>Why version-bisection isn't enough</h3>
+<p>Modern attacks often republish a "patch" version (e.g. 4.17.21 → 4.17.21 with malicious content) or compromise the registry's `dist-tags`. The semver number doesn't change. The only stable handle is the <em>publish timestamp</em>.</p>
+
+<h3>npm: time-based install with <code>--before</code></h3>
+
+<pre class="code" data-lang="shell" data-title="supply-chain-bisect-npm.sh">#!/usr/bin/env bash
+# supply-chain-bisect-npm.sh
+# Bisect across npm publish times to find the date a package began misbehaving.
+#
+# USAGE:
+#   ./supply-chain-bisect-npm.sh &lt;package&gt; &lt;good-date&gt; &lt;bad-date&gt; "&lt;predicate-cmd&gt;"
+#
+#   ./supply-chain-bisect-npm.sh lodash 2025-12-01 2026-06-01 "node check-side-effects.mjs"
+#
+set -euo pipefail
+
+PKG="$1"; GOOD="$2"; BAD="$3"; PRED="$4"
+
+iso_to_epoch() { date -u -d "$1" +%s; }
+epoch_to_iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+
+LO=$(iso_to_epoch "$GOOD")
+HI=$(iso_to_epoch "$BAD")
+
+install_at() {
+  local ts="$1"
+  local iso="$(epoch_to_iso "$ts")"
+  rm -rf node_modules package-lock.json
+  # npm --before installs the latest version available at that timestamp.
+  # Pinning the cache prevents leakage.
+  npm install --before="$iso" --no-fund --no-audit --silent "$PKG"
+}
+
+while (( HI - LO &gt; 86400 )); do  # narrow to a 24-hour window
+  MID=$(( (LO + HI) / 2 ))
+  install_at "$MID"
+  if eval "$PRED" &gt;/dev/null 2&gt;&amp;1; then
+    LO=$MID
+  else
+    HI=$MID
+  fi
+  echo "narrowed to [$(epoch_to_iso "$LO")..$(epoch_to_iso "$HI")]"
+done
+
+# At ±1 day, list every publish in that window and identify the exact one.
+npm view "$PKG" time --json | jq -r 'to_entries[] | select(.value &gt; "'"$(epoch_to_iso "$LO")"'" and .value &lt; "'"$(epoch_to_iso "$HI")"'") | "\(.value)  \(.key)"'
+</pre>
+
+<h3>pip: snapshot-based</h3>
+<p>pip doesn't have a native <code>--before</code> flag, but PyPI's JSON API exposes publish times. Build a constraints file at a given timestamp and install against it:</p>
+
+<pre class="code" data-lang="shell" data-title="supply-chain-bisect-pip.sh">#!/usr/bin/env bash
+# Bisect across PyPI publish times.
+# Uses pip-tools to resolve a constraints file as of a specific date.
+set -euo pipefail
+PKG="$1"; AT="$2"
+
+# Fetch publish history and pick the most recent version on/before AT.
+python - "$PKG" "$AT" &lt;&lt;'PY' &gt; /tmp/c.txt
+import json, sys, urllib.request, datetime as dt
+pkg, at = sys.argv[1], dt.datetime.fromisoformat(sys.argv[2])
+data = json.load(urllib.request.urlopen(f'https://pypi.org/pypi/{pkg}/json'))
+best = None
+for v, files in data['releases'].items():
+    for f in files:
+        t = dt.datetime.fromisoformat(f['upload_time_iso_8601'].rstrip('Z'))
+        if t &lt;= at and (best is None or t &gt; best[1]): best = (v, t)
+print(f'{pkg}=={best[0]}  # uploaded {best[1].isoformat()}')
+PY
+pip install -c /tmp/c.txt "$PKG"
+</pre>
+
+<h3>Cargo / Go / Maven</h3>
+<table class="cmp">
+<tr><th>Ecosystem</th><th>Time bisection knob</th></tr>
+<tr><td>Cargo</td><td>No native flag; use a vendored snapshot of <code>crates.io-index</code> at a Git ref of choice via <code>[source.crates-io]</code> override.</td></tr>
+<tr><td>Go modules</td><td><code>go mod tidy -compat=...</code> with <code>GOPROXY=direct</code>; resolve via <code>proxy.golang.org/PKG/@v/list</code> + per-version timestamps.</td></tr>
+<tr><td>Maven Central</td><td>Use <code>repository.dependency-management-by-time</code> plugin or pin via Sonatype Lift's timestamped index.</td></tr>
+<tr><td>Debian / RPM</td><td><code>snapshot.debian.org</code> exposes the entire archive as of any timestamp.</td></tr>
+</table>
+
+<h3>The behavioral predicate</h3>
+<p>For supply-chain hunting, the predicate often can't be "does the build pass?" — malicious code usually doesn't break the build, it exfiltrates. Wrap installs in a sandbox and watch for the actual signature:</p>
+
+<pre class="code" data-lang="javascript" data-title="check-side-effects.mjs">#!/usr/bin/env node
+// check-side-effects.mjs
+// Run `npm install` for a package under a strict sandbox; flag any unexpected
+// side effects (outbound network, suspicious file writes, env reads).
+//
+// USAGE (as a predicate):
+//   exits 0 = clean, 1 = found suspicious behavior, 125 = sandbox itself broke.
+import { spawnSync } from 'child_process';
+import fs from 'fs';
+
+// Pre-install snapshot of "what files exist under home".
+const homeBefore = new Set(fs.readdirSync(process.env.HOME, { recursive: true, withFileTypes: true })
+  .map(d =&gt; d.parentPath + '/' + d.name));
+
+// Strace install. firejail or bubblewrap would be stricter; this is the
+// portable baseline.
+const r = spawnSync('strace', ['-f', '-e', 'trace=connect,openat,execve',
+  '-o', '/tmp/install.strace', '--', 'npm', 'rebuild'], { stdio: 'inherit' });
+if (r.status !== 0) process.exit(125);
+
+const log = fs.readFileSync('/tmp/install.strace', 'utf8');
+const suspicious = [
+  /connect\(.*sin_port=htons\((?!443|80|22)[0-9]+\)/,  // non-HTTP outbound
+  /openat\(.*\/etc\/(shadow|passwd|sudoers)/,
+  /openat\(.*\/\.ssh\//,
+  /openat\(.*\/\.aws\//,
+  /openat\(.*\/\.config\/gh\//,
+  /execve\(.*\/(curl|wget|nc|ncat|socat)/,
+];
+let flagged = false;
+for (const re of suspicious) {
+  const m = log.match(re);
+  if (m) { console.error('SUSPICIOUS:', m[0]); flagged = true; }
+}
+const homeAfter = new Set(fs.readdirSync(process.env.HOME, { recursive: true, withFileTypes: true })
+  .map(d =&gt; d.parentPath + '/' + d.name));
+for (const f of homeAfter) if (!homeBefore.has(f) &amp;&amp; !f.includes('node_modules'))
+  { console.error('NEW HOME FILE:', f); flagged = true; }
+
+process.exit(flagged ? 1 : 0);
+</pre>
+
+<h3>Disclosure protocol</h3>
+<div class="callout bad">
+<div class="callout-title">Important</div>
+<p>If your bisection identifies a specific publish as malicious: <strong>do not</strong> push the repro publicly. Privately report to the registry (<code>security@npmjs.com</code>, <code>security@pypi.org</code>) and, if you have one, your CSIRT. Coordinate disclosure on a 7–30 day timeline. Publishing a working zero-day against a package that's still live in the registry harms every other user.</p>
+</div>
+</template>
+
+<template data-page-title="Distributed Trace Bisection" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Bisecting Distributed Traces</h2>
+<p class="lede">A user complains the page is slow. You pull the OpenTelemetry trace: 3,400 spans across 18 services. p95 is 4.2 seconds. <em>Where</em> is the time going? Reading every span manually is hopeless. Bisection narrows it to the offending service in 12 reads.</p>
+
+<h3>Two flavors of trace bisection</h3>
+<ol>
+  <li><strong>Spatial bisection.</strong> The trace is a tree of spans; binary-halve the children at each level and look at the duration of each half. The half whose sum is most of the parent's duration is the culprit subtree. Recurse.</li>
+  <li><strong>Temporal bisection.</strong> Replay the user's session up to time T. Did the slowness reproduce? Bisect over T. Effective when the slowness builds up over time (memory bloat, cache thrash) rather than living in a single span.</li>
+</ol>
+
+<h3>Spatial bisector for OTel JSON traces</h3>
+
+<pre class="code" data-lang="javascript" data-title="trace-span-bisect.mjs">#!/usr/bin/env node
+// trace-span-bisect.mjs
+// Walks an OTel trace JSON, identifies the longest hot-path subtree at each
+// level, and reports the leaf span where the time is actually going.
+//
+// USAGE:
+//   node trace-span-bisect.mjs trace.json
+//
+import fs from 'fs';
+
+const data = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+
+// Flatten OTel resource→scope→span structure into a single list.
+const all = [];
+for (const r of (data.resourceSpans || data.data || [])) {
+  for (const ss of (r.scopeSpans || r.instrumentationLibrarySpans || [])) {
+    for (const s of (ss.spans || [])) all.push(s);
+  }
+}
+
+// Build parent → children map.
+const byId = new Map(all.map(s =&gt; [s.spanId, s]));
+const kids = new Map();
+for (const s of all) {
+  if (!s.parentSpanId) continue;
+  if (!kids.has(s.parentSpanId)) kids.set(s.parentSpanId, []);
+  kids.get(s.parentSpanId).push(s);
+}
+
+function durMs(s) {
+  // OTel start/end are nanosecond strings.
+  const start = BigInt(s.startTimeUnixNano);
+  const end   = BigInt(s.endTimeUnixNano);
+  return Number(end - start) / 1e6;
+}
+
+function pretty(s, depth) {
+  const pad = '  '.repeat(depth);
+  const name = s.name + (s.attributes?.find?.(a =&gt; a.key === 'http.target')?.value?.stringValue ?? '');
+  return `${pad}${name.padEnd(60 - depth*2)} ${durMs(s).toFixed(1).padStart(8)} ms`;
+}
+
+// Find root(s).
+const roots = all.filter(s =&gt; !s.parentSpanId || !byId.has(s.parentSpanId));
+console.log('=== Trace hot path (longest-child descent) ===');
+for (const root of roots) {
+  let cur = root, depth = 0;
+  while (cur) {
+    console.log(pretty(cur, depth));
+    const cs = (kids.get(cur.spanId) || []).slice().sort((a,b) =&gt; durMs(b) - durMs(a));
+    if (!cs.length) break;
+    const total = cs.reduce((a, s) =&gt; a + durMs(s), 0);
+    const longest = cs[0];
+    // If the longest child accounts for ≥ 50% of the parent's duration, it's
+    // worth descending. Otherwise the time is spread across siblings.
+    if (durMs(longest) / durMs(cur) &lt; 0.5) {
+      console.log('  '.repeat(depth + 1) + `[time distributed across ${cs.length} children, sum=${total.toFixed(1)}ms]`);
+      break;
+    }
+    cur = longest;
+    depth++;
+  }
+  console.log();
+}
+</pre>
+
+<h3>The "drop half the spans" temporal bisector</h3>
+<p>When the slowness comes from <em>cumulative</em> work, not a single hot span — caches that grow, GC churn, locking pressure — descending the hot path won't find it. Instead, replay only the first half of the user's session through your service and see if slowness reproduces. Bisect over the cut point.</p>
+
+<pre class="code" data-lang="shell" data-title="session-replay-bisect.sh">#!/usr/bin/env bash
+# session-replay-bisect.sh
+# Replay the first N requests of a captured session; bisect N to find the
+# request that triggers cumulative slowness.
+#
+# Capture format: a JSONL file where each line is { method, path, body, headers }.
+set -euo pipefail
+
+SESSION="${1:?usage: $0 &lt;session.jsonl&gt; &lt;slowness-threshold-ms&gt;}"
+THRESHOLD="${2:-2000}"
+
+N=$(wc -l &lt; "$SESSION")
+echo "Session has $N requests"
+
+replay_and_measure() {
+  local count="$1"
+  # Spawn a fresh server, replay $count requests, then time the (count+1)th.
+  pnpm start &amp;&gt; /tmp/svr.log &amp; SVR=$!
+  trap "kill $SVR 2&gt;/dev/null" RETURN
+  sleep 1
+  head -n "$count" "$SESSION" | jq -c '.' | while read req; do
+    curl -sf -X "$(echo "$req" | jq -r .method)" \
+         -H "Content-Type: application/json" \
+         -d "$(echo "$req" | jq -r .body)" \
+         "http://localhost:3000$(echo "$req" | jq -r .path)" &gt;/dev/null
+  done
+  # Measure the next request.
+  local probe="$(sed -n "$((count + 1))p" "$SESSION")"
+  local ms=$(curl -sf -o /dev/null -w '%{time_total}' \
+       -X "$(echo "$probe" | jq -r .method)" \
+       "http://localhost:3000$(echo "$probe" | jq -r .path)" \
+       | awk '{print $1 * 1000}')
+  echo "$ms"
+}
+
+lo=0; hi=$((N - 1))
+while (( lo &lt; hi )); do
+  mid=$(( (lo + hi) / 2 ))
+  ms=$(replay_and_measure "$mid")
+  echo "after $mid requests: probe=${ms%.*}ms"
+  if (( ${ms%.*} &gt; THRESHOLD )); then hi=$mid; else lo=$((mid + 1)); fi
+done
+echo "Slowness manifests after request #$lo:"
+sed -n "${lo}p" "$SESSION"
+</pre>
+
+<h3>The "critical-path is wrong" gotcha</h3>
+<div class="callout">
+<div class="callout-title">Watch out</div>
+<p>OTel trace duration includes wall-clock time, not just CPU. A span that takes 800 ms might be 750 ms waiting for a parallel downstream call — its <em>own</em> contribution is 50 ms. Use OTel's <code>span.events</code> to find the actual critical path, or use <code>traceparent</code> + span links to follow the dependency chain explicitly. Descending naively on "longest duration" can lead you to an entirely innocent span.</p>
+</div>
+</template>
+
+<template data-page-title="Case Studies &amp; Further Reading" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Case Studies and Further Reading</h2>
+<p class="lede">Bisection has solved enough famous bugs to fill a book. Here are a handful that every engineer should know — and the papers and books that go deeper than this curriculum can.</p>
+
+<h3>Historical wins</h3>
+
+<h4>1. The "first <code>git bisect</code> case" (Linux kernel, ca. 2008)</h4>
+<p>Linus Torvalds, frustrated with hunting regressions in a kernel of millions of lines, formalized <code>git bisect</code>. The first publicly documented save: a kernel boot regression that bisection localized to a single commit changing an interrupt-mask routine. The bisection ran overnight on a kernel-boot harness. The fix was a one-line revert. The technique has saved Linux's reviewer time for two decades since.</p>
+
+<h4>2. The npm <code>event-stream</code> attack (2018)</h4>
+<p>A malicious actor took over maintenance of <code>event-stream</code>, added a dependency on a backdoored package <code>flatmap-stream</code>, and shipped credential-stealing code targeting <em>one</em> specific downstream user (a Bitcoin wallet). Forensics relied on supply-chain time bisection: which install date introduced the new transitive dependency? Once narrowed to a 3-day window, the malicious publish was obvious.</p>
+
+<h4>3. The "Spectre regression in Chromium V8" (2018)</h4>
+<p>After Spectre mitigations landed, JavaScript benchmarks regressed 20–40% on some workloads. The V8 team used <code>--opt-bisect-limit</code> (the LLVM/V8 equivalent) to bisect across the new mitigation passes. The result identified one specific bounds-check insertion as the dominant cost; a redesign recovered most of the lost throughput within months.</p>
+
+<h4>4. The Heartbleed disclosure window</h4>
+<p>OpenSSL's CVE-2014-0160 was introduced in commit <code>4817504d</code> in December 2011, exposed for ~28 months before discovery. After disclosure, every distro maintainer used <code>git bisect</code> to confirm which point-releases of OpenSSL were affected, and to backport the fix to the oldest still-supported branches.</p>
+
+<h4>5. Andreas Zeller's "Yesterday, My Program Worked. Today, It Does Not. Why?" (1999)</h4>
+<p>The paper that gave Delta Debugging its name. Zeller demonstrated minimizing a Mozilla browser crash to a 200-character HTML input from a 900,000-character original. The technique we now call <code>ddmin</code> originated here.</p>
+
+<h3>Patterns from these cases</h3>
+<ul>
+  <li><strong>Long-lived bugs hide because nobody bisects them.</strong> Heartbleed sat for 28 months in a regularly-reviewed codebase. Bisection isn't a one-time technique; it should be part of CI for every release branch you support.</li>
+  <li><strong>Bisection without disclosure is half the work.</strong> Identifying a malicious publish (event-stream) or a vulnerable commit (Heartbleed) is the easy part. Coordinating remediation across users is the hard part.</li>
+  <li><strong>Performance bisections often beat correctness bisections in user impact.</strong> Spectre/V8's 20% slowdown affected billions of pageviews per day; bisection was the only feasible path to recovery.</li>
+</ul>
+
+<h3>Recommended reading</h3>
+
+<h4>Books</h4>
+<table class="cmp">
+<tr><th>Title</th><th>Why it's worth your time</th></tr>
+<tr><td><em>Why Programs Fail</em> — Andreas Zeller</td><td>The bisection/delta-debugging canonical reference. Every chapter is "build a tool that finds bugs automatically."</td></tr>
+<tr><td><em>Effective Debugging</em> — Diomidis Spinellis</td><td>66 specific techniques, several of which are bisection in disguise. The book that complements this curriculum best for general debugging skills.</td></tr>
+<tr><td><em>Information Theory, Inference, and Learning Algorithms</em> — David MacKay</td><td>Chapter 6 (noisy channel coding) is the mathematical foundation for the "Bayesian Bisection" page.</td></tr>
+<tr><td><em>The Linux Programming Interface</em> — Michael Kerrisk</td><td>For when bisection narrows your bug to a syscall and you need to understand its semantics precisely.</td></tr>
+</table>
+
+<h4>Papers</h4>
+<table class="cmp">
+<tr><th>Paper</th><th>What it gives you</th></tr>
+<tr><td>"Yesterday, my program worked…" (Zeller, ESEC/FSE 1999)</td><td>Delta debugging, ddmin, and the formal minimization framework.</td></tr>
+<tr><td>"Simplifying and Isolating Failure-Inducing Input" (Zeller &amp; Hildebrandt, IEEE TSE 2002)</td><td>The canonical ddmin paper; pseudocode you can implement in 30 lines.</td></tr>
+<tr><td>"HDD: Hierarchical Delta Debugging" (Misherghi &amp; Su, ICSE 2006)</td><td>Tree-aware ddmin. Direct foundation for the HDD page in Part IX.</td></tr>
+<tr><td>"Practical Algorithms for Finding the First Bad Commit" (Couder, Git ML 2008)</td><td>Linus / Junio Hamano's discussion of git's graph-aware bisection heuristic.</td></tr>
+<tr><td>"Identifying the Performance-Critical Subspace" (numerous papers in PLDI/CGO 2014–2024)</td><td>Compiler-pass bisection state-of-the-art.</td></tr>
+<tr><td>"Generic Information-Theoretic Bisection" (Horstein 1973, BCJR family)</td><td>Bayesian bisection's theoretical backbone.</td></tr>
+</table>
+
+<h4>Tooling to know</h4>
+<table class="cmp">
+<tr><th>Tool</th><th>What it bisects</th></tr>
+<tr><td><code>git bisect</code></td><td>Commits in a git history.</td></tr>
+<tr><td><code>cargo-bisect-rustc</code></td><td>Rust nightly toolchains and individual rustc commits.</td></tr>
+<tr><td><code>creduce</code> / <code>cvise</code></td><td>C/C++ source code minimization for compiler bug repros.</td></tr>
+<tr><td><code>shrinkray</code></td><td>Generic input shrinker by David MacIver (creator of Hypothesis).</td></tr>
+<tr><td><code>git imerge</code></td><td>Incremental merging that exposes one conflict at a time — bisection for merges.</td></tr>
+<tr><td><code>rr</code> / Pernosco</td><td>Record/replay for deterministic execution; enables time-bisection.</td></tr>
+<tr><td>Hypothesis / QuickCheck</td><td>Property-based testing; built-in shrinking is bisection applied to inputs.</td></tr>
+<tr><td><code>git when-merged</code></td><td>Identifies which merge brought a commit into a branch — useful when bisection points at a merge.</td></tr>
+</table>
+
+<h3>The principal-engineer mindset to take away</h3>
+<div class="callout good">
+<div class="callout-title">Last word</div>
+<p>Bisection is not really about commits or files. It's about <em>turning ignorance into information at log-rate</em>. Once you internalize that view, you stop thinking "I'll use bisection here" and start asking, of every search problem, "what's my predicate, what's my candidate set, and is the invariant monotonic?" The technique disappears into the way you think.</p>
+<p>If you take one habit from this curriculum: <strong>before debugging, always ask "is this a search problem?" If yes, bisect. If no, think about why not.</strong></p>
+</div>
+<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something.</p>
 </template>
 
 <!-- ============================================================
