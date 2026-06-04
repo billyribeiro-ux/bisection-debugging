@@ -140,7 +140,7 @@ review checklists).
 
 ## Requirements
 
-- Node ≥ 20 (declared in `engines.node` and `.nvmrc`).
+- Node ≥ 24 (24.16.0 pinned in `.nvmrc`; `engines.node` declared `>=24` in `package.json`).
 - Bash, Zsh available on PATH (for `verify-scripts.sh`).
 - No other dependencies — the dev server runs via `pnpm dlx serve@14`, the
   rest is pure-Node.

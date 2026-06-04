@@ -5170,7 +5170,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24.16.0
           cache: 'pnpm'
 
       - name: Find last green nightly
@@ -6617,7 +6617,7 @@ pnpm init
   "type": "module",
   "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": "&gt;=20",
+    "node": "&gt;=24",
     "pnpm": "&gt;=9"
   },
   "description": "A clear one-liner about what this app does.",
@@ -6726,7 +6726,7 @@ pnpm pkg get scripts                                  # read whole scripts objec
 pnpm pkg set scripts.start="node server.js"          # set a script
 pnpm pkg set scripts.dev="node --watch server.js"    # set another
 pnpm pkg delete scripts.test                          # remove a script
-pnpm pkg set engines.node="&gt;=20"                     # set nested field
+pnpm pkg set engines.node="&gt;=24"                     # set nested field
 pnpm pkg set "repository.url=git+https://github.com/me/my-app.git"
 </pre>
 
@@ -6737,7 +6737,7 @@ pnpm pkg set "repository.url=git+https://github.com/me/my-app.git"
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "&gt;=20" },
+  "engines": { "node": "&gt;=24" },
   "scripts": {
     "start": "node server.js"
   },
@@ -7070,7 +7070,7 @@ pnpm add express@latest
 
   "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": "&gt;=20",
+    "node": "&gt;=24",
     "pnpm": "&gt;=9"
   },
 
@@ -7307,7 +7307,7 @@ auto-install-peers=true
   "type": "module",
   "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": "&gt;=20",
+    "node": "&gt;=24",
     "pnpm": "&gt;=9"
   },
   "scripts": {
@@ -7343,8 +7343,8 @@ auto-install-peers=true
 <h4><code>"type": "module"</code></h4>
 <p>Makes <code>.js</code> files default to ES module syntax. Our scripts use <code>.mjs</code> extensions for explicit clarity, but this flag matters anytime you add a <code>.js</code> file and expect <code>import</code>/<code>export</code> to work.</p>
 
-<h4><code>"engines": { "node": ">=20" }</code></h4>
-<p>Declares the Node version this project requires. By default it's advisory (a warning); pair with <code>npm config set engine-strict true</code> or a workspace <code>.npmrc</code> with <code>engine-strict=true</code> to make it a hard error. <strong>This is the cheapest CI fix you'll ever ship.</strong> A script that uses Node 20's <code>node:fs/promises.glob()</code> will fail mysteriously on Node 18; <code>engines</code> turns the mystery into a clean error at install time.</p>
+<h4><code>"engines": { "node": ">=24" }</code></h4>
+<p>Declares the Node version this project requires. By default it's advisory (a warning); pair with <code>npm config set engine-strict true</code> or a workspace <code>.npmrc</code> with <code>engine-strict=true</code> to make it a hard error. <strong>This is the cheapest CI fix you'll ever ship.</strong> A script that uses Node 24's stable permission model (<code>--permission</code>) or <code>require(esm)</code> will fail mysteriously on Node 22; <code>engines</code> turns the mystery into a clean error at install time.</p>
 
 <h4>The three primitive scripts</h4>
 <table class="cmp">
@@ -7974,7 +7974,7 @@ function ddmin(input) {
 
 <h3>The basic technique: target stages</h3>
 
-<pre class="code" data-lang="dockerfile" data-title="instrumented-Dockerfile">FROM node:20-alpine AS stage-base
+<pre class="code" data-lang="dockerfile" data-title="instrumented-Dockerfile">FROM node:24-alpine AS stage-base
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 
@@ -7988,7 +7988,7 @@ RUN pnpm build
 FROM stage-build AS stage-prune
 RUN pnpm prune --prod
 
-FROM node:20-alpine AS stage-final
+FROM node:24-alpine AS stage-final
 WORKDIR /app
 COPY --from=stage-prune /app /app
 CMD ["node", "dist/server.js"]
@@ -8066,11 +8066,11 @@ done
 </pre>
 
 <h3>Bisecting base image upgrades</h3>
-<p>You bumped <code>FROM node:20-alpine</code> to <code>FROM node:22-alpine</code>. Something broke. Bisect the base image:</p>
+<p>You bumped <code>FROM node:22-alpine</code> to <code>FROM node:24-alpine</code>. Something broke. Bisect the base image:</p>
 
 <pre class="code" data-lang="shell" data-title="base-image-bisect.sh">#!/usr/bin/env bash
 # Each line is one version to test.
-for tag in 22-alpine 21-alpine 20-alpine 18-alpine; do
+for tag in 24-alpine 23-alpine 22-alpine 20-alpine; do
   sed -i.bak "s|^FROM node:.*-alpine|FROM node:$tag|" Dockerfile
   if docker build -t bisect:"$tag" . &amp;&amp; docker run --rm bisect:"$tag" pnpm test; then
     echo "$tag: OK"
