@@ -54,17 +54,24 @@ node scripts/file-bisect/bisect-tailwind-classes.mjs src/lib/Header.svelte 0
 
 ## Regenerating
 
-If you edit `index.html`, regenerate the scripts in place with:
+If you edit `index.html`, regenerate the scripts in place via the wired
+pnpm pipeline (escape → extract → verify) in one shot:
 
 ```bash
-node extract-scripts.mjs
+pnpm build
 ```
 
-## Verification
-
-The repo includes `verify-scripts.sh` which syntax-checks every script
-without executing it.
+Or invoke the steps individually:
 
 ```bash
-./verify-scripts.sh
+pnpm escape     # idempotent HTML entity normalization
+pnpm extract    # regenerate scripts/ from index.html
+pnpm verify     # bash -n / zsh -n / node --check every extracted file
+```
+
+## Verification only
+
+```bash
+pnpm verify
+# or: ./verify-scripts.sh
 ```

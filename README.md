@@ -9,11 +9,17 @@ and distributed trace bisection.
 ## Quickstart (60 seconds)
 
 ```bash
+corepack enable                          # Node 16.9+ has corepack built in
 git clone https://github.com/billyribeiro-ux/bisection-debugging
 cd bisection-debugging
-npm run build        # escape → extract → verify
-npm run dev          # serves at http://localhost:8080
+pnpm install                             # honors packageManager pin
+pnpm build                               # escape → extract → verify
+pnpm dev                                 # serves at http://localhost:8080
 ```
+
+This project uses **pnpm** (never npm). The `preinstall` hook will refuse
+`npm install` outright via [`only-allow`](https://github.com/pnpm/only-allow);
+the `packageManager` field locks the exact pnpm version via corepack.
 
 ## What's in this repo
 
@@ -29,20 +35,24 @@ verify-scripts.sh          — syntax-checks every script
 
 ## Build commands
 
-All operations are wired through `npm` scripts with explicit pre/post lifecycle
-composition. See Part IX's "Build Orchestration Layer" page for the teaching.
+All operations are wired through `pnpm` scripts in `package.json` with
+explicit pre/post lifecycle composition. The `.npmrc` at the repo root sets
+`enable-pre-post-scripts=true` — pnpm's auto-fired pre/post hooks are
+disabled by default, and the curriculum's day-by-day page teaches why. See
+Part IX's "Building package.json from pnpm init to Production" and "The
+Build Orchestration Layer" pages.
 
 | Command          | What it does                                                                 |
 |------------------|------------------------------------------------------------------------------|
-| `npm run build`  | `prebuild` (escape HTML) → `build` (extract scripts) → `postbuild` (verify). |
-| `npm test`       | `pretest` (extract) → `test` (verify). Convention-aligned.                    |
-| `npm run dev`    | Serves `index.html` at `http://localhost:8080` via `npx serve` (no install). |
-| `npm start`      | Alias for `npm run dev`.                                                     |
-| `npm run check`  | Alias for `npm run build`. Used as the pre-push gate.                         |
-| `npm run clean`  | Removes `scripts/*` so the next `build` regenerates from scratch.            |
+| `pnpm build`  | `prebuild` (escape HTML) → `build` (extract scripts) → `postbuild` (verify). |
+| `pnpm test`       | `pretest` (extract) → `test` (verify). Convention-aligned.                    |
+| `pnpm dev`    | Serves `index.html` at `http://localhost:8080` via `pnpm dlx serve` (no install). |
+| `pnpm start`      | Alias for `pnpm dev`.                                                     |
+| `pnpm check`  | Alias for `pnpm build`. Used as the pre-push gate.                         |
+| `pnpm clean`  | Removes `scripts/*` so the next `build` regenerates from scratch.            |
 
-The primitives can also be invoked directly: `npm run escape`, `npm run extract`,
-`npm run verify`.
+The primitives can also be invoked directly: `pnpm escape`, `pnpm extract`,
+`pnpm verify`.
 
 ## Curriculum outline
 
@@ -80,16 +90,19 @@ and further reading.
 
 - Node ≥ 20 (declared in `engines.node` and `.nvmrc`).
 - Bash, Zsh available on PATH (for `verify-scripts.sh`).
-- No other dependencies — the dev server runs via `npx --yes serve@14`, the
+- No other dependencies — the dev server runs via `pnpm dlx serve@14`, the
   rest is pure-Node.
 
 ## CI integration
 
-Three lines of YAML, because all logic lives in `package.json`:
+Four lines of YAML, because all logic lives in `package.json`:
 
 ```yaml
+- uses: pnpm/action-setup@v4               # reads packageManager from package.json
 - uses: actions/setup-node@v4
-  with: { node-version-file: '.nvmrc' }
-- run: npm ci
-- run: npm run check
+  with:
+    node-version-file: '.nvmrc'
+    cache: 'pnpm'
+- run: pnpm install --frozen-lockfile
+- run: pnpm check
 ```
