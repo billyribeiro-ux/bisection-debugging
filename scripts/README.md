@@ -19,6 +19,8 @@ codes, and is exactly the version embedded in the corresponding lesson.
 | `advanced/`              | Part IX — info-theory calculator, Bayesian bisect, HDD, compiler-pass bisect, rr/chaos, AI checkpoint bisect, supply-chain time bisect, distributed-trace bisect. |
 | `modern/`                | Part X — Kubernetes / Helm / Kustomize, Terraform / Pulumi / CDK, feature-flag bisect (ddmin), Docker layer / image-size / crash bisect, OpenAPI / GraphQL contract bisect. |
 | `principal/`             | Part XI — incident timeline bisect, postmortem template, bisectability scorecard.|
+| `frameworks/`            | Part XII — bisection cost-model calculator, history-quality-index scorer, game-day workshop kit, anti-pattern audit checklist.|
+| `ecosystems/`            | Part XII — minimal bisection predicate snippets per language ecosystem (Node, Python, Go, Rust, Java, Ruby, PHP, .NET). |
 | `../.github/workflows/`  | `auto-bisect.yml` — GitHub Actions auto-bisect on nightly failure.            |
 
 ## Quick start
