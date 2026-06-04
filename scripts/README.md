@@ -17,6 +17,8 @@ codes, and is exactly the version embedded in the corresponding lesson.
 | `zsh/`                   | Same problems solved idiomatically in zsh (glob qualifiers, `zpty` REPL).    |
 | `ci/`                    | Fleet / CSV / env / flag bisectors, verify-the-verdict script.               |
 | `advanced/`              | Part IX — info-theory calculator, Bayesian bisect, HDD, compiler-pass bisect, rr/chaos, AI checkpoint bisect, supply-chain time bisect, distributed-trace bisect. |
+| `modern/`                | Part X — Kubernetes / Helm / Kustomize, Terraform / Pulumi / CDK, feature-flag bisect (ddmin), Docker layer / image-size / crash bisect, OpenAPI / GraphQL contract bisect. |
+| `principal/`             | Part XI — incident timeline bisect, postmortem template, bisectability scorecard.|
 | `../.github/workflows/`  | `auto-bisect.yml` — GitHub Actions auto-bisect on nightly failure.            |
 
 ## Quick start

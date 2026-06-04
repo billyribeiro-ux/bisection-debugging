@@ -110,6 +110,29 @@ const CATEGORY = {
   'check-side-effects.mjs':      'advanced',
   'trace-span-bisect.mjs':       'advanced',
   'session-replay-bisect.sh':    'advanced',
+
+  // Part X — Modern systems bisectors
+  'k8s-bisect-predicate.sh':     'modern',
+  'k8s-bisect-run.sh':           'modern',
+  'helm-bisect-predicate.sh':    'modern',
+  'kustomize-bisect-predicate.sh':'modern',
+  'terraform-bisect-plan.sh':    'modern',
+  'terraform-state-bisect.sh':   'modern',
+  'flag-bisect.mjs':             'modern',
+  'docker-stage-probe.sh':       'modern',
+  'docker-size-bisect.sh':       'modern',
+  'docker-crash-bisect.sh':      'modern',
+  'dive-inspect.sh':             'modern',
+  'base-image-bisect.sh':        'modern',
+  'openapi-diff-bisect.sh':      'modern',
+  'graphql-bisect.sh':           'modern',
+  'contract-test-predicate.mjs': 'modern',
+  'frontend-bisect-predicate.mjs':'modern',
+
+  // Part XI — Principal-engineering operational artifacts
+  'incident-timeline-bisect.sh': 'principal',
+  'postmortem-template.md':      'principal',
+  'bisectability-scorecard.md':  'principal',
 };
 
 // Titles whose target path is special (lives outside scripts/).
@@ -135,6 +158,32 @@ const SKIP_NAMES = new Set([
   'onboarding-60s.sh',
   'workspaces.json',
   'cheatsheet.sh',
+  // Part 0 — beginner pedagogical examples (none extract)
+  'what-terminal-looks-like.txt',
+  'first-session.sh',
+  'run-a-script.sh',
+  'git-history.txt',
+  'git-essentials.sh',
+  'reading-bash.sh',
+  'reading-js.mjs',
+  'reading-json.json',
+  'reading-yaml.yml',
+  'binary-search-game.txt',
+  'binary-search-shrinking.txt',
+  'example-stack-trace.txt',
+  'print-debug-example.mjs',
+  'which-tool.txt',
+  // Part X / XI — illustrative diagrams and templates that aren't tools
+  'instrumented-Dockerfile',
+  'signed-change.tf',
+  'observability-vs-bisection.txt',
+  'bug-cost-math.txt',
+  'decision-matrix.txt',
+  'incident-update.md',
+  'pnpm-workspace.yaml',
+  'npmrc.ini',
+  'day-9-npmrc.ini',
+  'day-1-npmrc.ini',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [

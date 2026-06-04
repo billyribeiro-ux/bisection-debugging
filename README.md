@@ -1,10 +1,15 @@
 # Bisection Debugging — Principal Engineer's Curriculum
 
-A 34-page curriculum that teaches bisection debugging from "what is binary
-search applied to bugs" through to the Shannon-information-theoretic lower
-bound, Bayesian bisection under noise, hierarchical delta debugging, compiler
-pass bisection, AI model checkpoint bisection, supply-chain time bisection,
-and distributed trace bisection.
+A **58-page curriculum** designed to take someone from "I've never coded
+before" through the full L7+ principal-engineer mental model. Starts with
+the terminal and binary search, builds through git bisect, advanced bisection
+(Shannon-information-theoretic lower bound, Bayesian bisection under noise,
+hierarchical delta debugging, compiler-pass bisection, supply-chain time
+bisection, distributed trace bisection), modern-systems bisection
+(Kubernetes, Terraform, feature flags, Docker layers, API contracts), and
+ends with the principal-engineer-level concerns: designing systems to be
+bisectable, incident response, the business case, mentoring, and
+postmortems.
 
 ## Quickstart (60 seconds)
 
@@ -56,6 +61,13 @@ The primitives can also be invoked directly: `pnpm escape`, `pnpm extract`,
 
 ## Curriculum outline
 
+**Part 0 — Before You Start** (10 pages, accessible to absolute beginners) ·
+what is a bug, really · the terminal in 10 minutes · git in 10 minutes ·
+how to read code in this curriculum · binary search visualized · scientific
+method for debugging · reading error messages and stack traces · writing
+minimal reproductions · the debugging tool hierarchy · rubber-duck and pair
+debugging.
+
 **Part I — Foundations** · what bisection is · the monotonicity invariant ·
 manual halving by hand.
 
@@ -85,6 +97,18 @@ compiler-pass bisection (LLVM, rustc, gcc) · rr record/replay for races ·
 AI model checkpoint bisection · supply-chain time bisection · distributed
 trace bisection · package.json build-orchestration patterns · case studies
 and further reading.
+
+**Part X — Modern Systems** · bisecting Kubernetes manifests ·
+infrastructure-as-code (Terraform / Pulumi / CDK) · feature flag
+configurations · Docker image layers · API contracts and GraphQL schemas.
+
+**Part XI — Principal Engineering** (the L7+ chapters) · designing systems
+to be bisectable · bisection in production incident response · bisection
+vs. observability as complementary tools · the cost of un-bisectable bugs
+and how to build the business case · when NOT to bisect (the decision
+framework) · mentoring debugging skill on your team · building a culture
+of reproducibility · postmortems, blameless culture, and continuous
+improvement.
 
 ## Requirements
 
