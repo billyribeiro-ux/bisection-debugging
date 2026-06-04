@@ -117,6 +117,25 @@ const SPECIAL_PATH = {
   '.github/workflows/auto-bisect.yml': '.github/workflows/auto-bisect.yml',
 };
 
+// Pedagogical / illustrative code blocks in the curriculum that should NOT be
+// extracted to disk. These are inline examples in the "Build Orchestration
+// Layer" page — they exist to teach package.json patterns, not as artifacts.
+// The real package.json is committed at the repo root and maintained directly.
+const SKIP = new Set([
+  'package.json',
+  'build-pipeline.txt',
+  'reserved-scripts.txt',
+  'serial.json',
+  'parallel.json',
+  'prepost.json',
+  'forward-args.json',
+  'npm-env.json',
+  'setup-githooks.sh',
+  'setup-husky.sh',
+  '.github/workflows/ci.yml',
+  'onboarding-60s.sh',
+]);
+
 function decodeEntities(s) {
   return s
     .replace(/&lt;/g, '<')
@@ -137,6 +156,8 @@ let m;
 while ((m = re.exec(html)) !== null) {
   const [, lang, title, rawBody] = m;
   const body = decodeEntities(rawBody).replace(/^\n/, '').replace(/\s+$/, '') + '\n';
+
+  if (SKIP.has(title)) continue;
 
   let target;
   if (SPECIAL_PATH[title]) {

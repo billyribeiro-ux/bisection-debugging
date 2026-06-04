@@ -4067,6 +4067,287 @@ sed -n "${lo}p" "$SESSION"
 </div>
 </template>
 
+<template data-page-title="The Build Orchestration Layer — package.json" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">The Build Orchestration Layer — package.json as DSL</h2>
+<p class="lede">A bisection script that runs once on your laptop is a toy. A bisection script that survives — runs in CI, gets used by colleagues, gets re-run a year later when you've forgotten how it works — needs a build system. For a Node project, that build system is <code>package.json</code>'s <code>"scripts"</code> field. Used well, it's a tiny declarative DSL that wires every command in your repo into one composable graph. Used poorly, it's a graveyard of <code>&amp;&amp; true || true</code>.</p>
+
+<h3>The mental model: what <code>npm run &lt;name&gt;</code> actually does</h3>
+<p>Strip away the folklore. Here is the entire algorithm:</p>
+<ol>
+  <li>npm walks up from <code>cwd</code> to find a <code>package.json</code>.</li>
+  <li>It looks up <code>scripts.&lt;name&gt;</code>.</li>
+  <li>It augments <code>PATH</code> with <code>./node_modules/.bin</code> and the current Node's bin dir.</li>
+  <li>It populates <code>npm_*</code> env vars (<code>npm_package_version</code>, <code>npm_lifecycle_event</code>, etc.).</li>
+  <li>It invokes <code>sh -c "&lt;command&gt;"</code> on POSIX, <code>cmd /c</code> on Windows.</li>
+  <li>Exit code propagates.</li>
+</ol>
+<p>That's all. No magic, no graph engine, no caching. Just PATH-augmented shell invocation plus two crucial conveniences: <strong>lifecycle hooks</strong> and <strong>script composition</strong>.</p>
+
+<h3>Lifecycle hooks — the feature most engineers underuse</h3>
+<p>For <em>any</em> script named <code>foo</code>, npm automatically runs <code>prefoo</code> before and <code>postfoo</code> after. Not advisory — mandatory. The implications are deep:</p>
+<ul>
+  <li>Composition without explicit <code>&amp;&amp;</code> chains.</li>
+  <li>Failure of <code>prefoo</code> short-circuits the whole sequence (npm aborts cleanly).</li>
+  <li>The shape of a pipeline becomes <em>visible at the table-of-contents level</em>: <code>prebuild</code>, <code>build</code>, <code>postbuild</code> read as one logical unit.</li>
+</ul>
+
+<h3>Our project's package.json</h3>
+
+<pre class="code" data-lang="json" data-title="package.json">{
+  "name": "bisection-debugging",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A principal-engineer-level curriculum on bisection debugging.",
+  "type": "module",
+  "engines": { "node": "&gt;=20" },
+  "scripts": {
+    "escape":    "node fix-html-escaping.mjs",
+    "extract":   "node extract-scripts.mjs",
+    "verify":    "./verify-scripts.sh",
+
+    "prebuild":  "npm run escape",
+    "build":     "npm run extract",
+    "postbuild": "npm run verify",
+
+    "pretest":   "npm run extract",
+    "test":      "npm run verify",
+
+    "dev":       "npx --yes serve@14 -l 8080 .",
+    "start":     "npm run dev",
+
+    "clean":     "rm -rf scripts/foundations scripts/git-bisect scripts/file-bisect scripts/dep-build scripts/test-perf scripts/bash scripts/zsh scripts/ci scripts/advanced",
+
+    "check":     "npm run build",
+    "prepush":   "npm run check"
+  }
+}
+</pre>
+
+<h3>Walking it line by line</h3>
+
+<h4><code>"private": true</code></h4>
+<p>Refuses to publish to the npm registry. A single line that prevents an entire class of disaster (accidentally publishing internal code, leaking secrets in a tarball). Every internal project should have this; the only projects without it are intentionally published packages.</p>
+
+<h4><code>"type": "module"</code></h4>
+<p>Makes <code>.js</code> files default to ES module syntax. Our scripts use <code>.mjs</code> extensions for explicit clarity, but this flag matters anytime you add a <code>.js</code> file and expect <code>import</code>/<code>export</code> to work.</p>
+
+<h4><code>"engines": { "node": ">=20" }</code></h4>
+<p>Declares the Node version this project requires. By default it's advisory (a warning); pair with <code>npm config set engine-strict true</code> or a workspace <code>.npmrc</code> with <code>engine-strict=true</code> to make it a hard error. <strong>This is the cheapest CI fix you'll ever ship.</strong> A script that uses Node 20's <code>node:fs/promises.glob()</code> will fail mysteriously on Node 18; <code>engines</code> turns the mystery into a clean error at install time.</p>
+
+<h4>The three primitive scripts</h4>
+<table class="cmp">
+<tr><th>Script</th><th>Does</th><th>Why it's a primitive</th></tr>
+<tr><td><code>escape</code></td><td>Decode-then-encode every code block's HTML entities</td><td>Idempotent, deterministic, no side effects outside <code>index.html</code></td></tr>
+<tr><td><code>extract</code></td><td>Walk <code>index.html</code>, write each <code>&lt;pre&gt;</code> block to <code>scripts/&lt;category&gt;/&lt;name&gt;</code></td><td>Pure derivation from one input file; safe to re-run anytime</td></tr>
+<tr><td><code>verify</code></td><td>Run <code>bash -n</code>, <code>zsh -n</code>, or <code>node --check</code> on every extracted file</td><td>Side-effect-free; quality gate</td></tr>
+</table>
+
+<h4>The composed pipeline</h4>
+<p>This is where lifecycle hooks pay off:</p>
+<pre class="code" data-lang="text" data-title="build-pipeline.txt">npm run build
+  → prebuild   = npm run escape    (fix HTML entities)
+  → build      = npm run extract   (regenerate scripts/)
+  → postbuild  = npm run verify    (syntax-check the lot)
+
+Failure of any step aborts the sequence. Exit codes propagate up.
+</pre>
+<p>One command does the right thing in the right order, every time, without a flaky <code>&amp;&amp;</code> chain that future-me will accidentally reorder.</p>
+
+<h4><code>test</code> as a reserved name</h4>
+<p>npm gives a small set of script names special treatment — you can invoke them without <code>run</code>:</p>
+<pre class="code" data-lang="text" data-title="reserved-scripts.txt">npm test     ≡ npm run test
+npm start    ≡ npm run start
+npm restart  ≡ npm run restart  (runs prerestart, restart, postrestart)
+npm stop     ≡ npm run stop
+</pre>
+<p>By convention, <code>test</code> means "run the test suite" and <code>start</code> means "run the thing." We follow both: <code>npm test</code> runs <code>verify</code> with <code>pretest</code> regenerating <code>scripts/</code> first; <code>npm start</code> launches the dev server. The convention matters: anyone cloning this repo will try <code>npm test</code> first, and they should be rewarded.</p>
+
+<h4><code>dev</code> with <code>npx --yes</code></h4>
+<p><code>npx --yes serve@14</code> downloads <code>serve</code> on first invocation and caches it; subsequent runs are instant. No <code>devDependencies</code> entry, no <code>node_modules/</code> bloat, no <code>npm install</code> step required. The <code>@14</code> pin matters: an unpinned <code>npx serve</code> would silently break the day <code>serve</code> v15 changes a flag.</p>
+
+<h4><code>prepare</code> — the install-time lifecycle hook</h4>
+<p>Reserved by npm. Runs after <code>npm install</code> in a clone (but not on installs in a published-package consumer). Perfect for: husky setup, generated-file initialization, post-clone first-time messages. We use it for a friendly welcome string so a new contributor sees actionable next steps.</p>
+
+<h3>The full lifecycle map</h3>
+<p>npm has more lifecycle hooks than most engineers realize. Knowing which one to use is a senior-engineer skill:</p>
+<table class="cmp">
+<tr><th>Hook</th><th>Fires when</th><th>Use it for</th></tr>
+<tr><td><code>preinstall</code></td><td>Before <code>npm install</code> runs</td><td>Almost never — runs before deps exist</td></tr>
+<tr><td><code>install</code></td><td>During install (deprecated meaning today)</td><td>Don't write this</td></tr>
+<tr><td><code>postinstall</code></td><td>After deps install</td><td>Generated files, native module compile. <em>Security-sensitive</em> — many orgs ban it.</td></tr>
+<tr><td><code>prepare</code></td><td>After install in a clone; before <code>npm publish</code>; on <code>npm pack</code></td><td>Husky, prebuild compiled output</td></tr>
+<tr><td><code>prepublishOnly</code></td><td>Before <code>npm publish</code> only (never on install)</td><td>Run tests; refuse to publish broken</td></tr>
+<tr><td><code>pre&lt;name&gt;</code> / <code>post&lt;name&gt;</code></td><td>Around every script you write</td><td>Composition without <code>&amp;&amp;</code></td></tr>
+</table>
+
+<h3>Cross-platform: what breaks on Windows</h3>
+<p>npm scripts run in <code>sh -c</code> on Unix and <code>cmd /c</code> on Windows. The shared subset is smaller than you think:</p>
+<table class="cmp">
+<tr><th>Idiom</th><th>Works on Windows?</th><th>Cross-platform alternative</th></tr>
+<tr><td><code>&amp;&amp;</code>, <code>||</code></td><td>Yes</td><td>—</td></tr>
+<tr><td><code>FOO=bar cmd</code> (inline env)</td><td>No — cmd.exe ignores it</td><td><code>cross-env FOO=bar cmd</code></td></tr>
+<tr><td><code>$VAR</code> expansion</td><td>No — cmd.exe uses <code>%VAR%</code></td><td>Read env vars inside your Node script instead of in the npm command</td></tr>
+<tr><td><code>rm -rf x</code></td><td>No</td><td><code>rimraf x</code> or <code>shx rm -rf x</code></td></tr>
+<tr><td><code>cp src dst</code></td><td>No</td><td><code>shx cp src dst</code></td></tr>
+<tr><td><code>cmd1 &amp; cmd2</code> (parallel)</td><td>Behaves differently</td><td><code>npm-run-all -p cmd1 cmd2</code> or <code>concurrently</code></td></tr>
+<tr><td>Glob expansion (<code>foo *.js</code>)</td><td>No — cmd.exe doesn't expand globs</td><td>Let your Node script glob: <code>node script.mjs '**/*'</code></td></tr>
+</table>
+<p>Our project uses <code>rm -rf</code> in the <code>clean</code> script — we accept Linux/macOS only because the curriculum is delivered as a single HTML file consumed in a browser, not as a Windows-distributed tool. <strong>If you ship a tool people run, audit your scripts for Windows compatibility. If you ship a website, don't bother.</strong></p>
+
+<h3>Composition patterns</h3>
+
+<h4>Serial (one after another)</h4>
+<pre class="code" data-lang="json" data-title="serial.json">{
+  "scripts": {
+    "ship": "npm run lint &amp;&amp; npm run test &amp;&amp; npm run build"
+  }
+}
+</pre>
+
+<h4>Parallel (concurrently)</h4>
+<pre class="code" data-lang="json" data-title="parallel.json">{
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:server dev:watch",
+    "dev:server": "node server.mjs",
+    "dev:watch":  "vite build --watch"
+  },
+  "devDependencies": { "npm-run-all": "^4.1.5" }
+}
+</pre>
+
+<h4>Pre/post composition (no operators)</h4>
+<pre class="code" data-lang="json" data-title="prepost.json">{
+  "scripts": {
+    "predeploy":  "npm run build",
+    "deploy":     "node deploy.mjs",
+    "postdeploy": "node notify-slack.mjs"
+  }
+}
+</pre>
+
+<h4>Argument forwarding</h4>
+<pre class="code" data-lang="json" data-title="forward-args.json">{
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest"
+  }
+}
+</pre>
+<p>Then <code>npm run lint -- --fix</code> forwards <code>--fix</code> to ESLint. The <code>--</code> separator tells npm "everything after this is for the underlying command." Critical when you want to add ad-hoc flags without editing <code>package.json</code>.</p>
+
+<h4>Reading variables npm injects</h4>
+<pre class="code" data-lang="json" data-title="npm-env.json">{
+  "version": "1.4.2",
+  "scripts": {
+    "release": "echo Releasing $npm_package_version &amp;&amp; git tag v$npm_package_version"
+  }
+}
+</pre>
+<p>Inside a script, <code>$npm_package_version</code>, <code>$npm_package_name</code>, and dozens of others are populated. <code>$npm_lifecycle_event</code> tells a shared script which entry point invoked it — useful when you have one Node file behind multiple script names.</p>
+
+<h3>Common antipatterns</h3>
+<div class="callout bad">
+<div class="callout-title">Avoid</div>
+<ul>
+  <li><strong>Overloading <code>prebuild</code> with arbitrary tasks.</strong> Pre-hooks should be tightly coupled to their parent. If you want a "lint + test before build" gate, write <code>"check": "npm run lint &amp;&amp; npm test &amp;&amp; npm run build"</code> and call it from CI explicitly.</li>
+  <li><strong>Hiding side effects in <code>postinstall</code>.</strong> Many orgs (and CI runners) now refuse packages that fetch code, compile binaries, or phone home in <code>postinstall</code>. Treat <code>postinstall</code> as security-radioactive.</li>
+  <li><strong>Long unreadable chains.</strong> <code>"ship": "rm -rf dist &amp;&amp; npm run lint &amp;&amp; npm test &amp;&amp; tsc &amp;&amp; webpack &amp;&amp; node deploy.mjs"</code> hides which step failed in CI logs. Break it up into named scripts and compose.</li>
+  <li><strong>Recursive <code>npm run</code> that loops.</strong> A script that runs itself (directly or via another script) hangs forever.</li>
+  <li><strong>Implicit shell features.</strong> Don't rely on Bash arrays, process substitution, or <code>$()</code> nesting; the script will break the day someone runs it under <code>sh</code> on Alpine.</li>
+  <li><strong>Forgetting <code>npm ci</code> in CI.</strong> <code>npm install</code> can mutate <code>package-lock.json</code>; <code>npm ci</code> installs exactly what the lockfile says and fails otherwise. CI should always use <code>ci</code>.</li>
+</ul>
+</div>
+
+<h3>The hierarchy of build systems</h3>
+<p>npm scripts aren't the only orchestration layer. Knowing where they sit in the stack is part of the job:</p>
+<table class="cmp">
+<tr><th>Layer</th><th>When to use it</th></tr>
+<tr><td><strong>package.json scripts</strong></td><td>JS-ecosystem-native, project-local. Default choice. What this project uses.</td></tr>
+<tr><td><strong>Makefile / justfile</strong></td><td>Cross-language repos, or when you need DAG semantics (target depends on target depends on file mtime). Often calls <em>into</em> npm scripts.</td></tr>
+<tr><td><strong>Turborepo / Nx / Bazel</strong></td><td>Monorepos where caching, remote execution, and dependency-graph correctness matter at scale.</td></tr>
+<tr><td><strong>CI YAML</strong></td><td>Top of the stack. Should be thin: <code>setup-node</code> + <code>npm ci</code> + <code>npm run check</code>. Avoid putting business logic in YAML.</td></tr>
+</table>
+
+<h3>Wiring git hooks to npm scripts</h3>
+<p>Pre-commit and pre-push hooks should delegate to npm, never duplicate commands.</p>
+
+<h4>Pure git (zero deps)</h4>
+<pre class="code" data-lang="shell" data-title="setup-githooks.sh">#!/usr/bin/env bash
+# setup-githooks.sh
+# Wire pre-push to `npm run prepush`. Version-controlled in .githooks/.
+set -euo pipefail
+mkdir -p .githooks
+cat &gt; .githooks/pre-push &lt;&lt;'HOOK'
+#!/usr/bin/env bash
+exec npm run prepush
+HOOK
+chmod +x .githooks/pre-push
+git config core.hooksPath .githooks
+echo "Done. .githooks/pre-push will run 'npm run prepush' before every git push."
+</pre>
+
+<h4>Husky (when you need more)</h4>
+<pre class="code" data-lang="shell" data-title="setup-husky.sh">#!/usr/bin/env bash
+# Husky version when you want lint-staged, commit-msg checks, etc.
+npm install --save-dev husky lint-staged
+npx husky init
+echo "npm run prepush" &gt; .husky/pre-push
+chmod +x .husky/pre-push
+</pre>
+<p>For this project, pure-git hooks are enough. The rule of thumb: reach for Husky only when you want <code>lint-staged</code> or commit-message validation. For a single <code>pre-push</code>, pure git is six lines and zero dependencies.</p>
+
+<h3>The CI side</h3>
+<p>Because all complexity lives in <code>package.json</code>, the CI YAML is three lines:</p>
+
+<pre class="code" data-lang="yaml" data-title=".github/workflows/ci.yml">name: ci
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: '.nvmrc' }
+      - run: npm ci          # NOT npm install — uses lockfile exactly
+      - run: npm run check   # ← all logic is here
+</pre>
+
+<p>This is the principal-engineer move: <strong>CI YAML should be a thin shim, not a place to write build logic</strong>. If your <code>check</code> recipe needs to change, it should change in <code>package.json</code> (reviewable, version-controlled, runnable locally) — not in the YAML behind a 5-minute round-trip through GitHub Actions.</p>
+
+<h3>The 60-second clone test</h3>
+<div class="callout good">
+<div class="callout-title">The bar</div>
+<p>A new engineer should be able to clone this repo and produce a verified artifact in under 60 seconds with no documentation other than <code>package.json</code>. Here's the run:</p>
+<pre class="code" data-lang="shell" data-title="onboarding-60s.sh">git clone https://github.com/billyribeiro-ux/bisection-debugging
+cd bisection-debugging
+npm run build
+# → prebuild   : Re-encoded 84 code blocks
+# → build      : Wrote 83 files under scripts/, .github/workflows/auto-bisect.yml
+# → postbuild  : All scripts pass syntax checks.
+
+npm run dev     # serves at http://localhost:8080
+</pre>
+<p>If your project can't pass that test, the fix is rarely "write better docs" — it's "make the <code>package.json</code> match the docs you would have written."</p>
+</div>
+
+<h3>Reading list for going deeper</h3>
+<table class="cmp">
+<tr><th>Resource</th><th>What you get</th></tr>
+<tr><td><code>npm help scripts</code> (the actual man page)</td><td>Authoritative lifecycle reference; faster than the docs site.</td></tr>
+<tr><td>The npm <em>config</em> docs (<code>npm help 7 config</code>)</td><td>Every flag that changes script behavior (<code>--silent</code>, <code>--foreground-scripts</code>, <code>ignore-scripts</code>).</td></tr>
+<tr><td>"You Don't Need a Task Runner" — various blog posts circa 2015</td><td>The argument for using npm scripts instead of Gulp/Grunt. Mostly won; worth reading to understand why your inherited Gulpfiles exist.</td></tr>
+<tr><td><a href="https://github.com/just-containers/s6-overlay" target="_blank" rel="noopener">just</a> + <a href="https://github.com/casey/just" target="_blank" rel="noopener">justfile</a></td><td>When package.json composition runs out of room, <code>just</code> is the next step up — Make-like syntax, no Make's footguns.</td></tr>
+<tr><td><a href="https://earthly.dev" target="_blank" rel="noopener">Earthly</a></td><td>"Make + Docker": reproducible builds with content-addressable caching. Read it to see what npm scripts can't give you.</td></tr>
+</table>
+
+<h3>The principle, distilled</h3>
+<div class="callout">
+<div class="callout-title">L7 mindset</div>
+<p>npm scripts aren't a build system. They're a <em>contract</em>: "this is the surface area of operations a human (or a CI runner) can perform on this repo." A good <code>package.json</code> reads like a table of contents for the project's operational behaviors. A bad one reads like git history of every command anyone happened to type. Curate it.</p>
+</div>
+</template>
+
 <template data-page-title="Case Studies &amp; Further Reading" data-part="IX — Advanced &amp; Theoretical">
 <span class="badge">Part IX · Advanced &amp; Theoretical</span>
 <h2 class="page-title">Case Studies and Further Reading</h2>
