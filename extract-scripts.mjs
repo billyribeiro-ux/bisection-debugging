@@ -152,6 +152,27 @@ const CATEGORY = {
   'bisect-ruby.sh':              'ecosystems',
   'bisect-php.sh':               'ecosystems',
   'bisect-dotnet.sh':            'ecosystems',
+
+  // Part XIII — The Craft of Writing Predicates
+  'predicate-skeleton.sh':       'craft',
+  'worksheet-example.md':        'craft',
+  'iter-5-final.sh':             'craft',
+  'pattern-type-check.sh':       'craft',
+  'pattern-smoke.sh':            'craft',
+  'pattern-assert.mjs':          'craft',
+  'pattern-perf.sh':             'craft',
+  'pattern-golden.sh':           'craft',
+  'composed-predicate.sh':       'craft',
+  'predicate-audit.md':          'craft',
+  'instrument-predicate.sh':     'craft',
+  'meta-predicate.sh':           'craft',
+  'ex-1-solution.mjs':           'craft',
+  'ex-2-solution.sh':            'craft',
+  'ex-3-solution.mjs':           'craft',
+  'ex-4-solution.sh':            'craft',
+  'ex-5-solution.mjs':           'craft',
+  'shareable-predicate.sh':      'craft',
+  'predicate-review.md':         'craft',
 };
 
 // Titles whose target path is special (lives outside scripts/).
@@ -208,6 +229,16 @@ const SKIP_NAMES = new Set([
   'worked-examples.txt',
   'phs-example-good.sh',
   'phs-example-bad.sh',
+
+  // Part XIII — illustrative iteration steps and anti-patterns (not extracted)
+  'naive-vs-correct.sh',
+  'iter-1-naive.sh',
+  'iter-2-setup-cleanup.sh',
+  'iter-3-loop.sh',
+  'iter-4-signal.sh',
+  'anti-1.sh', 'anti-2.sh', 'anti-3.sh', 'anti-4.sh', 'anti-5.sh',
+  'anti-6.sh', 'anti-7.sh', 'anti-8.sh', 'anti-9.sh', 'anti-10.sh',
+  'ci-predicate-check.yml',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [

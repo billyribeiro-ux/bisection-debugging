@@ -8108,7 +8108,1271 @@ dotnet test --no-restore
 <p>Every era of debugging has had a similar prediction: "this will be automated; debugging skill will become obsolete." Stack traces were going to replace debuggers. Logging was going to make profilers unnecessary. Observability was going to make manual debugging extinct. None of those predictions came true; the work shifted upward, and the engineers who shifted with it became more valuable, not less. The same will be true of AI-augmented bisection. The technique you've learned in this curriculum isn't going obsolete — its surface area is changing, and the engineers fluent in its underlying logic will be the ones who shape how the next tools work.</p>
 <p style="margin-top: 18px;">That fluency is what this curriculum has been building toward. <strong>The investment you've made in reading it is good for at least the next decade.</strong></p>
 </div>
-<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how. And design the next system so that future bisections always work.</p>
+</template>
+
+<template data-page-title="The Anatomy of a Predicate" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">The Anatomy of a Predicate</h2>
+<p class="lede">Up to this page, you've read 117 finished predicates. This Part teaches you to write your own from scratch — not by giving you more examples to copy, but by teaching you the structure every good predicate follows and the iterative process that gets you there. We start with anatomy.</p>
+
+<h3>Every predicate has the same five sections</h3>
+<p>Open any predicate in this curriculum. Trace its structure. You'll find the same five sections, every time, in the same order:</p>
+
+<table class="cmp">
+<tr><th>Section</th><th>Purpose</th><th>If you skip it</th></tr>
+<tr><td><strong>1. Setup</strong></td><td>Restore deps, fixtures, env, DB state to what the commit expects</td><td>Predicate fails for environmental reasons; bisection lies</td></tr>
+<tr><td><strong>2. Exercise</strong></td><td>Run the code path whose behavior you're judging</td><td>You're testing nothing</td></tr>
+<tr><td><strong>3. Observe</strong></td><td>Capture the signal: an exit code, a number, a file's contents</td><td>You can't tell if it passed</td></tr>
+<tr><td><strong>4. Cleanup</strong></td><td>Restore state, kill processes, remove temp files (always — via trap)</td><td>Round N+1 inherits round N's mess; rounds drift</td></tr>
+<tr><td><strong>5. Exit</strong></td><td>Translate the observation into <code>0</code>, <code>1</code>, or <code>125</code></td><td>Bisection misinterprets your verdict</td></tr>
+</table>
+
+<h3>The skeleton</h3>
+
+<pre class="code" data-lang="shell" data-title="predicate-skeleton.sh">#!/usr/bin/env bash
+# predicate.sh — &lt;one-line description of what this judges&gt;
+# Exit codes follow `git bisect run`: 0=good, 1=bad, 125=skip.
+set -uo pipefail   # strict but NOT -e (we handle errors deliberately)
+
+# === 1. SETUP =========================================================
+# Restore deps, fixtures, env. Exit 125 on any
+# "this commit isn't testable" condition (missing dep, broken build).
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+# === 2. CLEANUP (registered FIRST, before exercise) ===================
+# Whatever we set up below must be torn down even on Ctrl-C.
+SERVER_PID=""
+cleanup() {
+  [ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true
+  rm -rf /tmp/predicate-scratch.*
+}
+trap cleanup EXIT INT TERM
+
+# === 3. EXERCISE ======================================================
+# Do the thing we're judging.
+node dist/server.js &amp;
+SERVER_PID=$!
+sleep 1   # let server bind
+
+# === 4. OBSERVE =======================================================
+# Capture the signal — the one thing that decides pass/fail.
+RESPONSE=$(curl -sf -m 5 -w '%{http_code}' http://localhost:3000/checkout || echo "fail")
+
+# === 5. EXIT ==========================================================
+# Translate observation into git bisect's expected codes.
+[ "$RESPONSE" = "200" ] &amp;&amp; exit 0 || exit 1
+</pre>
+
+<p>That's 25 lines. Every predicate in Part X is a variation on this template. Once you internalize the five sections, writing new predicates becomes muscle memory.</p>
+
+<h3>Why this order matters</h3>
+<p>Three structural rules are non-negotiable:</p>
+<ol>
+  <li><strong>Cleanup is registered BEFORE exercise.</strong> If you register cleanup after the exercise and the exercise fails (or you Ctrl-C), cleanup never runs. Trap first, exercise second.</li>
+  <li><strong>Setup uses 125, not 1, for environment errors.</strong> If <code>pnpm install</code> can't find a registry, this commit isn't <em>bad</em> — it's <em>untestable</em>. <code>git bisect</code> will skip the commit and move on. Confusing the two convicts innocent commits.</li>
+  <li><strong>Exercise and Observe are separate.</strong> If you combine them ("run the test and check its exit code in one go"), you can't distinguish "the test ran and decided no" from "the test couldn't run at all." Capture the side effect (file, exit code, network response) in a variable; judge it afterward.</li>
+</ol>
+
+<h3>The most common beginner mistake, visualized</h3>
+
+<pre class="code" data-lang="shell" data-title="naive-vs-correct.sh"># ❌ NAIVE
+pnpm test           # tests + judgment in one step
+# What if pnpm itself wasn't installed? exit 1 → "this commit is bad"
+# What if the test crashed for unrelated reasons? exit 1 → still "bad"
+# What if a port was in use from the previous round? exit 1 → still "bad"
+# All three of these convict innocent commits.
+
+# ✅ CORRECT
+pnpm install --frozen-lockfile || exit 125    # 125 = skip
+PORT=$(get-free-port) pnpm test --json &gt; /tmp/result.json
+status=$?
+case $status in
+  0)   exit 0 ;;
+  130) exit 125 ;;   # user pressed Ctrl-C
+  *)   # check if it crashed for env reasons or actually failed assertions
+       grep -q '"numFailingTests":0' /tmp/result.json &amp;&amp; exit 125 || exit 1 ;;
+esac
+</pre>
+
+<p>The naive version is shorter. Engineers reach for it because it "looks like" a working predicate. It runs once on a known-good commit, returns 0, and they declare it ready. Then bisection runs it for 6 hours and produces a confidently-wrong answer.</p>
+
+<div class="callout">
+<div class="callout-title">Internalize the structure first</div>
+<p>Don't try to write predicates from scratch yet. For the next four pages, focus on understanding the structure and the decisions you'd make at each section. The page after the patterns walk you through a full narrated build. You'll know you've internalized the structure when you can sketch a predicate's five sections — in shorthand, on paper — before opening a terminal. That's the goal.</p>
+</div>
+</template>
+
+<template data-page-title="The Pre-Flight Worksheet" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">The Pre-Flight Worksheet — Five Minutes Before Code</h2>
+<p class="lede">Engineers who write reliable predicates do something every junior engineer skips: they answer seven specific questions in writing before they open a text editor. Five minutes of writing saves four hours of bisecting the wrong thing. This page is the worksheet, with a worked example.</p>
+
+<h3>The seven questions</h3>
+
+<table class="cmp">
+<tr><th>#</th><th>Question</th><th>What a good answer looks like</th></tr>
+<tr><td>1</td><td>What is the candidate set?</td><td>"Commits from <code>a3f9c81</code> (last known good, Mar 12) through <code>HEAD</code>. About 340 commits."</td></tr>
+<tr><td>2</td><td>What monotonic property defines the bug?</td><td>"Before the bug: <code>GET /checkout</code> p99 &lt; 300 ms. After: p99 &gt; 1 s. The property flips once and doesn't flip back."</td></tr>
+<tr><td>3</td><td>What's the good endpoint, and have I confirmed it?</td><td>"<code>a3f9c81</code>. Confirmed by running the predicate manually: 8 measurements, all under 280 ms."</td></tr>
+<tr><td>4</td><td>What's the bad endpoint, and have I confirmed it?</td><td>"<code>HEAD</code> (<code>e7b2a91</code>). Confirmed: 8 measurements, all over 1.5 s."</td></tr>
+<tr><td>5</td><td>How long does one predicate run take?</td><td>"Setup ~30s (cached deps) + exercise ~10s + cleanup ~2s = ~45s. Times log₂(340) = 9 rounds × 45s ≈ 7 minutes total."</td></tr>
+<tr><td>6</td><td>What could go wrong (top 3)?</td><td>"(a) Port collision between rounds; (b) Stale connection pool from previous server; (c) Network flake on health-check."</td></tr>
+<tr><td>7</td><td>What's the recovery plan if the predicate is wrong?</td><td>"After bisect lands, manually run the predicate 5 times on the alleged culprit + its parent. If results disagree, the predicate is wrong; re-tighten and retry."</td></tr>
+</table>
+
+<h3>A worked example, end to end</h3>
+
+<pre class="code" data-lang="markdown" data-title="worksheet-example.md"># Pre-Flight Worksheet — checkout latency regression
+
+**Date:** 2026-06-04
+**Author:** Alex Chen
+**Bug:** GET /checkout p99 latency went from ~200 ms (April) to ~1.8 s (June).
+
+## 1. Candidate set
+- Commits from `release-2026-04-15` (~340 commits) through `HEAD`.
+- Restricted to commits touching `services/checkout/**` using `git bisect start -- services/checkout/`.
+
+## 2. Monotonic property
+- Before culprit: p99 of 20 sequential `GET /checkout` calls is &lt; 300 ms.
+- After culprit: p99 is &gt; 1 s.
+- We've verified at the endpoints that the threshold is unambiguous.
+
+## 3. Good endpoint (confirmed)
+- `release-2026-04-15` → SHA `a3f9c81`.
+- Manual measurement: 8 runs, p99 = 280 ms ± 30 ms.
+
+## 4. Bad endpoint (confirmed)
+- `HEAD` → SHA `e7b2a91`.
+- Manual measurement: 8 runs, p99 = 1.65 s ± 200 ms.
+
+## 5. Predicate cost
+- Setup (pnpm install --prefer-offline, build cached): ~30 s.
+- Exercise: spin up server (1s), 20 curls (10s), shutdown (1s): ~12 s.
+- Cleanup: ~2 s.
+- Per round: ~45 s. Total bisection: 9 rounds × 45 s ≈ 7 min.
+
+## 6. What could go wrong
+- (a) **Port collision** between rounds. Mitigate: use random port; pass via env.
+- (b) **Stale connection pool** in DB driver. Mitigate: fresh container each round.
+- (c) **Network flake** in healthcheck. Mitigate: 5× retry with 1s backoff.
+
+## 7. Recovery plan
+- After bisection completes, run the predicate 10× on the alleged culprit.
+- If &lt; 8/10 say "bad", the predicate is noisy — increase k-of-k from 1 to 5.
+- If the culprit looks innocent (e.g., only touches comments), reverse-verify
+  by reverting the suspect on HEAD and re-running the predicate; should pass.
+</pre>
+
+<h3>Why each question matters</h3>
+<ul>
+  <li><strong>Q1 forces you to bound the search.</strong> "I think the regression is from this quarter" is too vague to bisect.</li>
+  <li><strong>Q2 forces you to make monotonicity explicit.</strong> If you can't write the property in one sentence, your bug isn't bisectable yet — you're describing a symptom, not a binary state.</li>
+  <li><strong>Q3 + Q4 force you to confirm endpoints.</strong> Most failed bisections fail because the "known-good" wasn't actually good. Manually run the predicate at each endpoint <em>before</em> starting the run.</li>
+  <li><strong>Q5 forces you to estimate cost.</strong> If the estimate is 4 hours, you might choose to read the diffs instead (see XII.5 — When Not to Bisect).</li>
+  <li><strong>Q6 forces you to pre-plan robustness.</strong> The first three failure modes you think of are the ones that will bite you. Plan for them now.</li>
+  <li><strong>Q7 forces you to plan for being wrong.</strong> Senior engineers expect to be wrong; juniors assume the bisect output is gospel.</li>
+</ul>
+
+<h3>The "what's NOT monotonic" check</h3>
+<p>Question 2 is where most worksheets fail. If you can't articulate a property that flips exactly once, bisection isn't your tool. Bugs that are NOT monotonic:</p>
+<ul>
+  <li>"It's slow some of the time, fast other times" — not monotonic; it never <em>flipped</em>, it's intermittent throughout.</li>
+  <li>"Two flags both have to be on" — not single-axis monotonic; needs ddmin (Part IX HDD), not bisection.</li>
+  <li>"It got worse, then better, then worse again" — non-monotonic; bisect would converge to the wrong commit. Plot the metric over time first; identify which transition you actually care about.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">A team norm worth establishing</div>
+<p>Every PR that introduces a bisection script should include the seven-question worksheet in its description. Reviewers check it before approving. Six months later, when someone debugs <em>that</em> predicate, the original author's worksheet tells them what the predicate was designed to find. The worksheet becomes documentation. Cost: five minutes per script. Return: every future engineer who touches the predicate knows what it's for.</p>
+</div>
+</template>
+
+<template data-page-title="Building a Predicate, Step by Step" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">Building a Predicate, Step by Step — A Narrated Walk-Through</h2>
+<p class="lede">Here we build a real predicate from scratch, narrating every decision. The naive version is 5 lines and broken. The final version is 35 lines and bullet-proof. Each iteration solves one specific problem the previous version had. Read this once and you'll have internalized the entire iterative shape of predicate-writing.</p>
+
+<h3>The bug</h3>
+<p>The same one from the previous page's worksheet: checkout latency went from ~200 ms to ~1.8 s sometime in the last 340 commits. We want <code>git bisect run</code> to find the culprit.</p>
+
+<h3>Iteration 1 — The naive version</h3>
+
+<pre class="code" data-lang="shell" data-title="iter-1-naive.sh">#!/usr/bin/env bash
+node dist/server.js &amp;
+sleep 2
+ms=$(curl -o /dev/null -w '%{time_total}' http://localhost:3000/checkout)
+[ "$(echo "$ms &lt; 0.3" | bc)" = "1" ] &amp;&amp; exit 0 || exit 1
+</pre>
+
+<p>What's wrong:</p>
+<ul>
+  <li>No setup — uses whatever <code>dist/</code> was already on disk.</li>
+  <li>One measurement, on the head of a queue — single sample, no smoothing.</li>
+  <li>Server is leaked (never killed).</li>
+  <li>No distinction between "checkout slow" and "server didn't start at all."</li>
+  <li>Port 3000 may be in use from the previous round.</li>
+</ul>
+
+<h3>Iteration 2 — Add setup and cleanup</h3>
+
+<pre class="code" data-lang="shell" data-title="iter-2-setup-cleanup.sh">#!/usr/bin/env bash
+set -uo pipefail
+
+# Setup
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+# Cleanup registered first
+SERVER_PID=""
+trap '[ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true' EXIT
+
+# Exercise
+node dist/server.js &amp;
+SERVER_PID=$!
+sleep 2
+
+# Observe + exit
+ms=$(curl -o /dev/null -w '%{time_total}' http://localhost:3000/checkout)
+[ "$(echo "$ms &lt; 0.3" | bc)" = "1" ] &amp;&amp; exit 0 || exit 1
+</pre>
+
+<p>Better. Now:</p>
+<ul>
+  <li>Install errors return 125 (skip) instead of 1 (bad) — preserves bisection integrity.</li>
+  <li>The server is cleaned up on exit, even on Ctrl-C.</li>
+  <li>But: still single measurement, still uses fixed port 3000.</li>
+</ul>
+
+<h3>Iteration 3 — Random port + measurement loop</h3>
+
+<pre class="code" data-lang="shell" data-title="iter-3-loop.sh">#!/usr/bin/env bash
+set -uo pipefail
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+SERVER_PID=""
+trap '[ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true' EXIT
+
+PORT=$PORT node dist/server.js &amp;
+SERVER_PID=$!
+
+# Wait for readiness, not arbitrary sleep
+for i in $(seq 1 20); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; break
+  sleep 0.5
+done
+
+# Measure 20× — drop fastest 5 and slowest 5 to reduce outliers
+measurements=()
+for i in $(seq 1 20); do
+  ms=$(curl -o /dev/null -w '%{time_total}\n' "http://localhost:$PORT/checkout")
+  measurements+=("$ms")
+done
+
+# p99 ≈ max of the middle 90% (here: median-ish since we drop tails)
+p99=$(printf '%s\n' "${measurements[@]}" | sort -n | sed -n '12p')
+
+awk -v p="$p99" 'BEGIN { exit (p &lt; 0.3 ? 0 : 1) }'
+</pre>
+
+<p>Much better. But there are still subtle issues:</p>
+<ul>
+  <li>What if the server didn't start in 10 seconds? The loop exits but the predicate continues and curls succeed against nothing → measurements default to ~0 → predicate says "good" wrongly.</li>
+  <li>What if a DB connection fails midway through? Some curls return 500 with very low latency.</li>
+  <li>The fast-path "0.0s" of a connection-refused error fools the latency check.</li>
+</ul>
+
+<h3>Iteration 4 — Distinguish "no signal" from "good signal"</h3>
+
+<pre class="code" data-lang="shell" data-title="iter-4-signal.sh">#!/usr/bin/env bash
+set -uo pipefail
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+SERVER_PID=""
+trap '[ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true' EXIT
+
+PORT=$PORT node dist/server.js &amp;
+SERVER_PID=$!
+
+# Wait for readiness with a hard cap
+READY=0
+for i in $(seq 1 30); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; { READY=1; break; }
+  sleep 0.5
+done
+[ "$READY" = "0" ] &amp;&amp; exit 125    # server never came up — not the bug we're hunting
+
+# Measure 20 valid requests; refuse to count failures as "fast"
+declare -a measurements=()
+fails=0
+for i in $(seq 1 20); do
+  out=$(curl -sf -o /dev/null -w '%{http_code} %{time_total}\n' "http://localhost:$PORT/checkout" || echo "000 0")
+  code=$(echo "$out" | awk '{print $1}')
+  ms=$(echo "$out"   | awk '{print $2}')
+  if [ "$code" = "200" ]; then
+    measurements+=("$ms")
+  else
+    fails=$((fails + 1))
+  fi
+done
+
+# Too many failures = predicate can't judge this commit
+[ "$fails" -gt 5 ] &amp;&amp; exit 125
+
+# p99 from sorted measurements
+p99=$(printf '%s\n' "${measurements[@]}" | sort -n | tail -n 2 | head -n 1)
+echo "p99 = $p99 s, fails = $fails / 20"
+
+awk -v p="$p99" 'BEGIN { exit (p &lt; 0.3 ? 0 : 1) }'
+</pre>
+
+<h3>Iteration 5 — The final form</h3>
+
+<pre class="code" data-lang="shell" data-title="iter-5-final.sh">#!/usr/bin/env bash
+# checkout-latency-bisect.sh
+# Identifies the commit at which p99 of GET /checkout exceeded 300 ms.
+# Exit: 0 = good (p99 &lt; 300ms), 1 = bad (p99 ≥ 300ms), 125 = untestable.
+set -uo pipefail
+
+# --- SETUP ---
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+# --- CLEANUP (registered before exercise) ---
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+SERVER_PID=""
+SCRATCH=$(mktemp -d)
+cleanup() {
+  [ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true
+  rm -rf "$SCRATCH"
+}
+trap cleanup EXIT INT TERM
+
+# --- EXERCISE: spin up server ---
+PORT=$PORT node dist/server.js &gt; "$SCRATCH/server.log" 2&gt;&amp;1 &amp;
+SERVER_PID=$!
+
+# Wait for readiness
+READY=0
+for i in $(seq 1 30); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; { READY=1; break; }
+  sleep 0.5
+done
+if [ "$READY" = "0" ]; then
+  echo "Server failed to start; logs:"; cat "$SCRATCH/server.log"
+  exit 125
+fi
+
+# --- EXERCISE + OBSERVE: 20 measurements ---
+declare -a measurements=()
+fails=0
+for i in $(seq 1 20); do
+  out=$(curl -sf -o /dev/null -m 5 -w '%{http_code} %{time_total}\n' \
+        "http://localhost:$PORT/checkout" || echo "000 0")
+  code=$(echo "$out" | awk '{print $1}')
+  ms=$(echo "$out"   | awk '{print $2}')
+  [ "$code" = "200" ] &amp;&amp; measurements+=("$ms") || fails=$((fails + 1))
+done
+
+# --- EXIT ---
+[ "$fails" -gt 5 ] &amp;&amp; { echo "Too many failures ($fails/20) — skip"; exit 125; }
+
+p99=$(printf '%s\n' "${measurements[@]}" | sort -n | tail -n 2 | head -n 1)
+echo "p99 = ${p99}s  fails = ${fails}/20"
+
+awk -v p="$p99" 'BEGIN { exit (p &lt; 0.3 ? 0 : 1) }'
+</pre>
+
+<h3>What the five iterations taught</h3>
+<table class="cmp">
+<tr><th>Iteration</th><th>Problem solved</th></tr>
+<tr><td>1 → 2</td><td>Distinguish env errors from real bug; clean up state</td></tr>
+<tr><td>2 → 3</td><td>Random port + readiness wait + multiple measurements</td></tr>
+<tr><td>3 → 4</td><td>Distinguish "no signal" (failed requests) from "good signal"</td></tr>
+<tr><td>4 → 5</td><td>Capture diagnostic output; bound resource use; final polish</td></tr>
+</table>
+
+<p><strong>This iteration pattern is how every predicate gets written.</strong> You don't start with the 35-line version; you arrive at it through five honest revisions, each driven by an observed failure of the previous one. The senior engineer's skill isn't writing the 35-line version on the first try — it's <em>predicting</em> which failure modes will hit, so iteration 1 already includes the protections for 80% of them.</p>
+
+<div class="callout good">
+<div class="callout-title">A useful drill</div>
+<p>Pick any script in the curriculum's <code>scripts/</code> directory. Rewrite it as a "naive iteration 1" — strip out all the protections, retain only the core logic. Then write down what would break first when you ran the naive version. Then add only that protection. Repeat. This drill is how you build intuition for which protections matter. After doing it five times, you'll write better iteration 1s on real bugs.</p>
+</div>
+</template>
+
+<template data-page-title="The Five Predicate Patterns" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">The Five Predicate Patterns — Templates You'll Use Forever</h2>
+<p class="lede">Most predicates fall into one of five shapes. Recognize the shape, fill in the template. You'll write 90% of your career's predicates faster, and the remaining 10% will be obvious novelty cases. This page is the catalog.</p>
+
+<h3>Pattern 1 — The Type-Check Predicate (fastest)</h3>
+<p><strong>Use when:</strong> the bug is "this won't compile / type-check / lint." Often the cheapest possible predicate at ~1–5 seconds per round.</p>
+
+<pre class="code" data-lang="shell" data-title="pattern-type-check.sh">#!/usr/bin/env bash
+set -uo pipefail
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm exec tsc --noEmit
+</pre>
+
+<p>Variations: <code>cargo check</code> (Rust), <code>go vet</code> (Go), <code>mypy</code> (Python), <code>shellcheck</code> (bash), <code>eslint</code> (JS without execution).</p>
+
+<h3>Pattern 2 — The Smoke-Test Predicate</h3>
+<p><strong>Use when:</strong> the bug is "the app no longer starts" or "a basic endpoint returns the wrong status code." 3–30 seconds per round.</p>
+
+<pre class="code" data-lang="shell" data-title="pattern-smoke.sh">#!/usr/bin/env bash
+set -uo pipefail
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+PORT=$PORT pnpm start &amp;
+PID=$!
+trap "kill $PID 2&gt;/dev/null || true" EXIT
+
+# Wait for readiness
+for i in $(seq 1 30); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; break
+  sleep 0.5
+done
+
+# The one smoke check
+curl -sf -o /dev/null -m 5 "http://localhost:$PORT/api/users/1"
+</pre>
+
+<h3>Pattern 3 — The Behavioral-Assertion Predicate</h3>
+<p><strong>Use when:</strong> the bug is "function X returns the wrong value for input Y." This is the most common pattern.</p>
+
+<pre class="code" data-lang="javascript" data-title="pattern-assert.mjs">#!/usr/bin/env node
+// pattern-assert.mjs
+// Behavioral predicate — asserts function X returns expected value for input Y.
+import { spawnSync } from 'child_process';
+
+// Setup
+if (spawnSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], { stdio: 'ignore' }).status !== 0) process.exit(125);
+if (spawnSync('pnpm', ['build'], { stdio: 'ignore' }).status !== 0) process.exit(125);
+
+// Exercise + Observe
+const { calculateTax } = await import('./dist/tax.mjs');
+const result = calculateTax({ items: [{ price: 100 }], region: 'US-CA' });
+
+// Exit
+const ok = result.total === 108.5 &amp;&amp; result.tax === 8.5;
+process.exit(ok ? 0 : 1);
+</pre>
+
+<h3>Pattern 4 — The Perf-Budget Predicate</h3>
+<p><strong>Use when:</strong> the bug is "something got slower." Use the iteration-5 template from the previous page as your baseline.</p>
+
+<pre class="code" data-lang="shell" data-title="pattern-perf.sh">#!/usr/bin/env bash
+# Perf-budget predicate. Returns 0 if p99 of N measurements is under THRESHOLD.
+set -uo pipefail
+THRESHOLD_SEC="${THRESHOLD:-0.5}"
+SAMPLES="${SAMPLES:-20}"
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+# Use hyperfine for warm-cache statistical perf measurement
+pnpm dlx hyperfine -m "$SAMPLES" --warmup 3 --export-json /tmp/perf.json \
+  -- "pnpm exec node dist/run-benchmark.mjs" &gt;/dev/null
+
+p99=$(node -e "
+  const d = JSON.parse(require('fs').readFileSync('/tmp/perf.json'));
+  const t = d.results[0].times.sort((a,b)=&gt;a-b);
+  console.log(t[Math.floor(t.length * 0.99)]);
+")
+echo "p99 = ${p99}s threshold=${THRESHOLD_SEC}s"
+awk -v p="$p99" -v t="$THRESHOLD_SEC" 'BEGIN { exit (p &lt; t ? 0 : 1) }'
+</pre>
+
+<h3>Pattern 5 — The Golden-File Comparison Predicate</h3>
+<p><strong>Use when:</strong> the bug is "output looks different and we don't know how." Compare the current commit's output to a saved "golden" output from a known-good commit.</p>
+
+<pre class="code" data-lang="shell" data-title="pattern-golden.sh">#!/usr/bin/env bash
+# Compares the current commit's output to a frozen "golden" file.
+# Use when you can't reduce the bug to a single assertion.
+set -uo pipefail
+
+GOLDEN="${GOLDEN:?path to golden file from a known-good commit}"
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+# Produce output for THIS commit, normalize (strip timestamps, sort lines, etc.)
+pnpm exec node dist/produce-report.mjs --input fixture.json \
+  | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z/[TIME]/g' \
+  | sort &gt; /tmp/actual.txt
+
+# Compare. diff returns 0 if files match.
+diff -q /tmp/actual.txt "$GOLDEN" &gt;/dev/null
+</pre>
+
+<h3>Choosing between the patterns</h3>
+<table class="cmp">
+<tr><th>If the symptom is…</th><th>Reach for…</th><th>Per-round cost</th></tr>
+<tr><td>"It doesn't compile / type-check"</td><td>Type-check (Pattern 1)</td><td>~5 s</td></tr>
+<tr><td>"It crashes on startup" / "Endpoint X is 500"</td><td>Smoke (Pattern 2)</td><td>~15 s</td></tr>
+<tr><td>"Function returns wrong value"</td><td>Assertion (Pattern 3)</td><td>~10 s</td></tr>
+<tr><td>"It got slower"</td><td>Perf-budget (Pattern 4)</td><td>~30 s + measurement overhead</td></tr>
+<tr><td>"The output is subtly different"</td><td>Golden (Pattern 5)</td><td>~10 s</td></tr>
+</table>
+
+<h3>Composing patterns</h3>
+<p>Real predicates often combine two: a smoke test (Pattern 2) <em>then</em> an assertion (Pattern 3) on the response. The composition is sequential — each check exits with 125 if the previous setup didn't succeed.</p>
+
+<pre class="code" data-lang="shell" data-title="composed-predicate.sh">#!/usr/bin/env bash
+# Smoke + assertion composed.
+set -uo pipefail
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+PORT=$PORT pnpm start &amp; PID=$!
+trap "kill $PID 2&gt;/dev/null || true" EXIT
+for i in $(seq 1 30); do curl -sf "http://localhost:$PORT/health" &amp;&amp; break; sleep 0.5; done
+
+# Smoke: did the endpoint return 200?
+HTTP=$(curl -sf -o /tmp/body -w '%{http_code}' "http://localhost:$PORT/api/checkout?amount=100" || echo 000)
+[ "$HTTP" = "200" ] || exit 1
+
+# Assertion: did the body match the expected shape?
+jq -e '.tax == 8.5 and .total == 108.5' /tmp/body &gt;/dev/null
+</pre>
+
+<div class="callout">
+<div class="callout-title">Internalize the patterns, not the scripts</div>
+<p>The point of this page isn't to memorize five scripts; it's to recognize, in any new bug report, which of the five shapes fits. Once you can say "this is a perf-budget bug" out loud, the predicate is 80% written before you open a terminal. The other 20% is the iteration cycle from the previous page.</p>
+</div>
+</template>
+
+<template data-page-title="Predicate Anti-Patterns" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">Predicate Anti-Patterns — Ten Mistakes That Make Bisections Lie</h2>
+<p class="lede">Every page so far has shown predicates that work. This page is the negative space: the ten specific mistakes that produce confidently-wrong bisection results. Memorize them — every one of them I (and you) will instinctively write at least once before noticing the trap.</p>
+
+<h3>1. Exit-1 for environment errors</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-1.sh"># ❌ Wrong
+pnpm install &amp;&amp; pnpm test         # any install failure = exit 1 = "bad"
+
+# ✅ Right
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm test
+</pre>
+
+<p><strong>Why it matters:</strong> When the registry has a hiccup, you convict an innocent commit. <code>125</code> tells <code>git bisect</code> "skip — untestable," which is the correct signal for "I couldn't even set up to test."</p>
+
+<h3>2. Combining exercise and observation</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-2.sh"># ❌ Wrong
+pnpm test         # tests + their own assertions; pass/fail mixed with crashes
+
+# ✅ Right
+pnpm test --json --output /tmp/result.json || true   # don't conflate yet
+jq -e '.numFailedTests == 0 and .numTotalTests &gt; 0' /tmp/result.json
+</pre>
+
+<p><strong>Why it matters:</strong> The naive version returns exit 1 when (a) tests genuinely failed AND (b) the test runner itself crashed AND (c) zero tests ran. These are three different states; only (a) means "bad commit." Separate the observation.</p>
+
+<h3>3. Hitting external services</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-3.sh"># ❌ Wrong
+node test-against-staging.mjs   # depends on staging environment, which drifts
+
+# ✅ Right
+docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=test postgres:16 &amp;
+DB_PID=$!
+trap "kill $DB_PID" EXIT
+sleep 3
+DATABASE_URL=postgresql://postgres:test@localhost/test node test.mjs
+</pre>
+
+<p><strong>Why it matters:</strong> Staging environments mutate between rounds. If staging breaks during round 4, the predicate fails for reasons that have nothing to do with the commit. Predicates must own their entire environment.</p>
+
+<h3>4. No cleanup trap</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-4.sh"># ❌ Wrong
+pnpm start &amp;
+SERVER=$!
+# ... do tests ...
+kill $SERVER
+
+# ✅ Right
+pnpm start &amp;
+SERVER=$!
+trap "kill $SERVER 2&gt;/dev/null || true" EXIT INT TERM
+# ... do tests ...
+</pre>
+
+<p><strong>Why it matters:</strong> If the test crashes between starting and killing, the server is leaked. By round 10 you've got 10 zombie servers fighting for port 3000.</p>
+
+<h3>5. Implicit time / locale / timezone dependency</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-5.sh"># ❌ Wrong
+node check-order-flow.mjs   # creates an order; checks "created_at" displays right
+
+# ✅ Right
+TZ=UTC LC_ALL=C SOURCE_DATE_EPOCH=1700000000 node check-order-flow.mjs
+</pre>
+
+<p><strong>Why it matters:</strong> A predicate that passes during business hours and fails at midnight, or passes for US-format dates and fails for European ones, fails for reasons unrelated to the bisection. Pin every implicit input.</p>
+
+<h3>6. Mutating shared state between rounds</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-6.sh"># ❌ Wrong
+psql -c "INSERT INTO users (email) VALUES ('test@example.com')"
+node assert-user-exists.mjs
+
+# ✅ Right — fresh database per round
+TMPDB=$(mktemp -u)
+createdb "$TMPDB"
+trap "dropdb '$TMPDB'" EXIT
+DATABASE_URL="postgresql://localhost/$TMPDB" pnpm migrate
+DATABASE_URL="postgresql://localhost/$TMPDB" node assert-user-exists.mjs
+</pre>
+
+<p><strong>Why it matters:</strong> Round 1 inserts a row. Round 2's "INSERT" fails because of unique-constraint violation. The predicate's behavior depends on the previous round, which is the opposite of what a bisection oracle is.</p>
+
+<h3>7. Treating compile errors as test failures</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-7.sh"># ❌ Wrong
+pnpm build &amp;&amp; pnpm test || exit 1
+
+# ✅ Right — build failure = untestable
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+pnpm test
+</pre>
+
+<p><strong>Why it matters:</strong> A commit that doesn't build isn't necessarily "bad" — it's "in a broken intermediate state." Skip it (125) so bisection continues, instead of converging on the unbuilt commit.</p>
+
+<h3>8. Using <code>set -e</code> alone</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-8.sh"># ❌ Wrong (too aggressive)
+set -e
+pnpm test
+some-tool   # script bails before checking observation
+
+# ✅ Right
+set -uo pipefail   # warn on unset vars, propagate pipe errors, but DON'T auto-exit
+RESULT=$(pnpm test --json || echo '{"numFailedTests":-1}')
+jq -e '.numFailedTests == 0' &lt;&lt;&lt; "$RESULT"
+</pre>
+
+<p><strong>Why it matters:</strong> <code>set -e</code> bails on the first nonzero exit, including ones you wanted to handle. In predicates you almost always want <code>set -uo pipefail</code> (strict variables, pipe error propagation) but explicit error handling for the exit-code decision.</p>
+
+<h3>9. Counting tests instead of asserting outcomes</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-9.sh"># ❌ Wrong
+[ "$(pnpm test --silent | grep -c PASS)" -gt 100 ]
+
+# ✅ Right
+pnpm test --json --output /tmp/r.json
+jq -e '.numFailedTests == 0 and .numTotalTests &gt; 100' /tmp/r.json
+</pre>
+
+<p><strong>Why it matters:</strong> A commit that runs zero tests "passes" the naive count check. A commit that runs 1000 tests and fails 999 also "passes" if you only check "100 PASSes appeared." Always assert both that tests ran AND that none failed.</p>
+
+<h3>10. Forgetting timeouts</h3>
+
+<pre class="code" data-lang="shell" data-title="anti-10.sh"># ❌ Wrong
+node integration-test.mjs   # no timeout — could hang forever
+
+# ✅ Right
+timeout 60 node integration-test.mjs
+case $? in
+  0)   exit 0 ;;
+  124) echo "timed out"; exit 125 ;;   # likely an env issue, not the bug
+  *)   exit 1 ;;
+esac
+</pre>
+
+<p><strong>Why it matters:</strong> A bisection that's running unattended overnight will hang for hours on a single bad commit if its predicate has no timeout. Cap every operation. Bias toward 125 on timeout (skip, not bad) unless you have specific reason to believe a timeout IS the bug.</p>
+
+<h3>The audit checklist</h3>
+
+<pre class="code" data-lang="markdown" data-title="predicate-audit.md"># Predicate Audit (do this before `git bisect run`)
+
+For each section of your predicate, check:
+
+## Setup
+[ ] Install / build failures exit 125, not 1
+[ ] Lockfile is committed and the install uses --frozen-lockfile
+[ ] External services are mocked or containerized — NOT staging
+
+## Exercise
+[ ] Random port (not hard-coded :3000)
+[ ] Wait-for-ready loop, not arbitrary `sleep`
+[ ] Environment pinned: TZ=UTC LC_ALL=C SOURCE_DATE_EPOCH=...
+[ ] Timeouts on every potentially-long operation
+
+## Observe
+[ ] Captures the actual signal (HTTP code, value, file diff)
+[ ] Does NOT conflate "failed assertion" with "test runner crashed"
+[ ] Validates BOTH that work happened AND that it produced correct output
+
+## Cleanup
+[ ] `trap cleanup EXIT INT TERM` registered BEFORE any state is created
+[ ] Removes temp files and dirs
+[ ] Kills any backgrounded processes
+[ ] Drops temporary databases / cleans up volumes
+
+## Exit
+[ ] Three-way: 0 (good), 1 (bad), 125 (skip)
+[ ] No silent `exit 0` paths
+[ ] Last line is the explicit exit decision, not an accident
+</pre>
+
+<div class="callout good">
+<div class="callout-title">A reading drill</div>
+<p>The next time you read someone else's bisection predicate (in a PR, a runbook, a Stack Overflow answer), run through these ten anti-patterns mentally. Most predicates in the wild have 2–4 of them. The skill of <em>seeing</em> the anti-patterns is what eventually lets you not <em>write</em> them.</p>
+</div>
+</template>
+
+<template data-page-title="Debugging Your Own Predicate" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">Debugging Your Own Predicate — When the Predicate Itself Is Broken</h2>
+<p class="lede">A predicate is code. Code has bugs. When <code>git bisect</code> returns a confidently-wrong answer, the bug is almost never in <code>git bisect</code> — it's in your predicate. This page walks you through the four symptoms of a broken predicate and the diagnostic steps for each.</p>
+
+<h3>Symptom 1 — The "alleged culprit" doesn't reproduce</h3>
+<p><strong>The signal:</strong> Bisect reports commit X is bad. You check out X, run the predicate manually. It passes.</p>
+
+<p><strong>Diagnosis steps:</strong></p>
+<ol>
+  <li>Run the predicate 10 times in a row on X. How often does it pass vs. fail?</li>
+  <li>If mixed: your predicate is flaky. Move to Symptom 3.</li>
+  <li>If always passes: the predicate exited 1 during the bisection for a different reason than the bug. Check the bisect log for the actual stderr at round X — was it an OOM kill, a network timeout, a port collision?</li>
+  <li>The fix: refine the predicate to return 125 for the env condition that caused the spurious failure.</li>
+</ol>
+
+<h3>Symptom 2 — Every commit is "bad"</h3>
+<p><strong>The signal:</strong> Bisect narrows nothing — every <code>git bisect run</code> step reports "bad." The first or second commit becomes the culprit.</p>
+
+<p><strong>Diagnosis steps:</strong></p>
+<ol>
+  <li>Did you confirm the good endpoint by running the predicate manually there? If no, do it now.</li>
+  <li>If it fails at the alleged good endpoint: the predicate is wrong. Most likely your "expected" value is wrong, or your assertion logic is inverted (returning 1 when it should return 0).</li>
+  <li>If it passes at the good endpoint but fails everywhere else: the predicate depends on something that's only present on your local working copy (e.g., a config file, a built artifact, environment variables) that doesn't get checked out by <code>git bisect</code>.</li>
+  <li>The fix: ensure the predicate ONLY depends on committed code + the deps in the lockfile. Print every relevant env var at predicate start.</li>
+</ol>
+
+<h3>Symptom 3 — "Bisect is stuck in a loop of skips"</h3>
+<p><strong>The signal:</strong> <code>git bisect</code> reports "I cannot decide because all commits left are skipped." Bisection effectively gave up.</p>
+
+<p><strong>Diagnosis steps:</strong></p>
+<ol>
+  <li>Check the bisect log for the reason each commit was skipped (your <code>exit 125</code> paths).</li>
+  <li>If skips are caused by install failures: your lockfile is too strict for the older commits. Try <code>--prefer-offline</code> + a pre-warmed cache; or relax to <code>pnpm install</code> (no <code>--frozen-lockfile</code>) for the bisection only.</li>
+  <li>If skips are from build failures: the bug is in a code path that the older commits don't include. The good endpoint may be set too far back. Move it forward to the most recent confirmed-good commit.</li>
+  <li>If skips are from timeouts: predicate or setup is hitting a hard limit. Either extend the timeout or skip commits known to be slow-but-correct.</li>
+</ol>
+
+<h3>Symptom 4 — Results differ between two engineers running the same predicate</h3>
+<p><strong>The signal:</strong> Alice runs the bisection; gets commit X. Bob runs the same predicate; gets commit Y.</p>
+
+<p><strong>Diagnosis steps:</strong></p>
+<ol>
+  <li>Compare their environments: OS, Node version, locale, timezone, installed system packages.</li>
+  <li>Compare their working copies: untracked files, uncommitted local changes, different lockfile cache state.</li>
+  <li>Run the predicate inside the same container (Docker / devcontainer) on both machines — does it now agree?</li>
+  <li>The fix: every predicate that's worth committing should be runnable inside a containerized environment. Lock the OS + Node + lockfile + env vars. The "works on my machine" failure mode is solved at the predicate level by making "my machine" the same machine for everyone.</li>
+</ol>
+
+<h3>The reverse-engineering technique</h3>
+<p>When you suspect your predicate is wrong but can't see why, instrument it:</p>
+
+<pre class="code" data-lang="shell" data-title="instrument-predicate.sh">#!/usr/bin/env bash
+# Wrap your predicate with verbose tracing.
+exec &gt; &gt;(tee "/tmp/predicate-$(git rev-parse --short HEAD).log") 2&gt;&amp;1
+
+# Print everything that might affect behavior.
+echo "=== ENV ==="
+env | sort
+
+echo "=== CWD ==="
+pwd
+ls -la
+
+echo "=== GIT STATE ==="
+git rev-parse HEAD
+git status --short
+
+echo "=== UNTRACKED FILES (these don't get checked out) ==="
+git status --short --untracked-files | head -20
+
+echo "=== STARTING PREDICATE ==="
+set -x   # bash trace mode: prints every command before running it
+
+# ... your predicate code ...
+
+set +x
+echo "=== EXIT $? ==="
+</pre>
+
+<p>Then run <code>git bisect</code> with this instrumented version. After it finishes, you have a per-commit log of exactly what the predicate saw. The cause of the wrong answer is almost always visible in one of those logs.</p>
+
+<h3>The "swap good/bad" sanity check</h3>
+<p>Before running any non-trivial bisection, do this check (60 seconds):</p>
+<ol>
+  <li>Check out the known-good commit. Run the predicate. It should exit 0.</li>
+  <li>Check out the known-bad commit. Run the predicate. It should exit 1.</li>
+  <li>If either is wrong, the predicate is wrong; do not start the bisection.</li>
+  <li>Re-run step 1 and 2 a few times (3 each, minimum) to check for flakiness.</li>
+</ol>
+
+<p>This check catches more predicate bugs than any other single technique. Senior engineers do it instinctively before every bisection. Juniors usually skip it and learn the importance the hard way.</p>
+
+<h3>The meta-predicate technique</h3>
+<p>For high-stakes bisections (a production incident, a customer-facing regression), write a <em>predicate for your predicate</em>:</p>
+
+<pre class="code" data-lang="shell" data-title="meta-predicate.sh">#!/usr/bin/env bash
+# Tests the predicate itself, not the code.
+# Runs the predicate at 5 known points; verifies expected behavior.
+set -uo pipefail
+
+declare -a CHECKS=(
+  "a3f9c81:0"    # known-good → should exit 0
+  "b1c2d3e:0"    # also known-good → should exit 0
+  "e7b2a91:1"    # known-bad → should exit 1
+  "f9a8b7c:1"    # also known-bad → should exit 1
+  "deadbeef:125" # known-broken (won't build) → should exit 125
+)
+
+for check in "${CHECKS[@]}"; do
+  sha="${check%:*}"
+  expected="${check#*:}"
+  git checkout -q "$sha"
+  ./predicate.sh &gt;/dev/null 2&gt;&amp;1
+  got=$?
+  if [ "$got" != "$expected" ]; then
+    echo "FAIL: $sha expected $expected, got $got"
+    exit 1
+  fi
+done
+echo "All 5 checks pass — predicate is calibrated."
+</pre>
+
+<div class="callout">
+<div class="callout-title">The predicate-craft mindset</div>
+<p>A predicate is a tiny program that decides truth. Like any program that makes important decisions, it deserves the same care you'd give production code: clear sections, error handling, observability, tests. The first time you treat a predicate this way it feels like overkill. The first time you would have made a 4-hour mistake without it, you'll never write a predicate any other way again.</p>
+</div>
+</template>
+
+<template data-page-title="Practice Exercises" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">Practice Exercises — Five Scenarios with Model Solutions</h2>
+<p class="lede">Reading about predicate craft and writing predicates are different skills. The five exercises below give you the practice that turns understanding into competence. For each: read the scenario, write your own predicate, then compare to the model solution. Don't peek before attempting.</p>
+
+<h3>Exercise 1 — The Slow Function</h3>
+<p><strong>Scenario:</strong> Your library has a function <code>formatReport(data)</code> in <code>src/report.mjs</code>. Last quarter it ran in ~50ms on a 10,000-row input; today it takes 4 seconds. The repo has 500 commits since the last good measurement. Write a predicate.</p>
+
+<details>
+<summary>Pre-flight worksheet sketch (try yours, then compare)</summary>
+<table class="cmp">
+<tr><td>Candidate set</td><td>500 commits since last-known-good</td></tr>
+<tr><td>Monotonic property</td><td><code>formatReport</code> on 10k rows finishes in &lt; 200ms</td></tr>
+<tr><td>Good endpoint</td><td>~v2.3.0 (confirmed: 8 runs avg 52ms)</td></tr>
+<tr><td>Bad endpoint</td><td>HEAD (confirmed: 8 runs avg 4.1s)</td></tr>
+<tr><td>Predicate cost</td><td>install 5s + measurement 1s × 5 = ~10s per round; ~90s total</td></tr>
+<tr><td>Could go wrong</td><td>JIT warm-up on first call; cold-cache filesystem reads</td></tr>
+</table>
+</details>
+
+<details>
+<summary>Model solution</summary>
+<pre class="code" data-lang="javascript" data-title="ex-1-solution.mjs">#!/usr/bin/env node
+// ex-1-solution.mjs — Exercise 1 model.
+import { spawnSync } from 'child_process';
+import fs from 'fs';
+import { performance } from 'perf_hooks';
+
+if (spawnSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], { stdio: 'ignore' }).status !== 0) process.exit(125);
+
+let formatReport;
+try { ({ formatReport } = await import('./src/report.mjs')); }
+catch { process.exit(125); }                                       // unimportable = skip
+
+const rows = JSON.parse(fs.readFileSync('fixtures/10k-rows.json'));
+
+// Warm-up to let JIT settle
+for (let i = 0; i &lt; 3; i++) formatReport(rows);
+
+// Measure k=5; use median
+const times = [];
+for (let i = 0; i &lt; 5; i++) {
+  const t = performance.now();
+  formatReport(rows);
+  times.push(performance.now() - t);
+}
+times.sort((a, b) =&gt; a - b);
+const median = times[2];
+
+console.log(`median = ${median.toFixed(1)} ms`);
+process.exit(median &lt; 200 ? 0 : 1);
+</pre>
+<p><strong>Key choices:</strong> Use <code>performance.now()</code>, not <code>Date.now()</code> (sub-millisecond precision). Warm-up before measuring (JIT). Take the median, not the mean (resistant to outliers). The 200ms threshold is comfortably above good (~52ms) and well below bad (~4100ms).</p>
+</details>
+
+<h3>Exercise 2 — The Wrong HTTP Header</h3>
+<p><strong>Scenario:</strong> An API endpoint <code>/users</code> used to set <code>Cache-Control: no-store</code>. Last week customers noticed pages caching their data. The bug is somewhere in the last 200 commits. Write a predicate.</p>
+
+<details>
+<summary>Model solution</summary>
+<pre class="code" data-lang="shell" data-title="ex-2-solution.sh">#!/usr/bin/env bash
+# ex-2-solution.sh — Exercise 2 model.
+set -uo pipefail
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+PORT=$PORT pnpm start &amp; PID=$!
+trap "kill $PID 2&gt;/dev/null || true" EXIT
+
+# Wait for readiness
+for i in $(seq 1 30); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; break
+  sleep 0.5
+done
+
+# Check the header (not the body)
+CACHE_HEADER=$(curl -sf -I "http://localhost:$PORT/users" | tr -d '\r' | awk -F': ' 'tolower($1)=="cache-control" {print $2}')
+echo "Cache-Control: $CACHE_HEADER"
+
+[ "$CACHE_HEADER" = "no-store" ] &amp;&amp; exit 0 || exit 1
+</pre>
+<p><strong>Key choice:</strong> The bug is in <em>headers</em>, not the body. <code>curl -I</code> requests headers only. We extract the specific header instead of grep-and-hope.</p>
+</details>
+
+<h3>Exercise 3 — The Cache Pollution Bug</h3>
+<p><strong>Scenario:</strong> A function <code>getUserById(id)</code> caches results in-memory. Recently, calling <code>getUserById(1)</code> after <code>getUserById(2)</code> returns user 2's data. The cache was supposed to key by ID. Write a predicate.</p>
+
+<details>
+<summary>Model solution</summary>
+<pre class="code" data-lang="javascript" data-title="ex-3-solution.mjs">#!/usr/bin/env node
+// ex-3-solution.mjs — Exercise 3 model.
+import { spawnSync } from 'child_process';
+
+if (spawnSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], { stdio: 'ignore' }).status !== 0) process.exit(125);
+
+let getUserById;
+try { ({ getUserById } = await import('./src/users.mjs')); } catch { process.exit(125); }
+
+// The bug only appears in a specific call sequence — encode it.
+const u2 = await getUserById(2);
+const u1 = await getUserById(1);    // should return user 1, not user 2
+
+if (!u1 || !u2)                          process.exit(125);  // missing fixture data
+if (u1.id !== 1 || u2.id !== 2)          process.exit(1);    // BUG present
+process.exit(0);
+</pre>
+<p><strong>Key choice:</strong> The predicate's exercise step encodes the <em>exact sequence</em> that triggers the bug — not "test getUserById" in isolation. Bisection's quality is bounded by how precisely you describe the bug.</p>
+</details>
+
+<h3>Exercise 4 — The Bundle Size Doubled</h3>
+<p><strong>Scenario:</strong> Last release, your built bundle was 240 KB gzipped. The newest is 510 KB. Find the commit that added the bulk.</p>
+
+<details>
+<summary>Model solution</summary>
+<pre class="code" data-lang="shell" data-title="ex-4-solution.sh">#!/usr/bin/env bash
+# ex-4-solution.sh — Exercise 4 model.
+set -uo pipefail
+THRESHOLD_KB="${THRESHOLD_KB:-300}"
+
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+# Build to dist/
+rm -rf dist
+pnpm build &gt;/dev/null 2&gt;&amp;1 || exit 125
+
+# Sum up gzipped sizes of all .js files in dist/
+TOTAL_BYTES=$(find dist -name '*.js' -exec sh -c 'gzip -c "$1" | wc -c' _ {} \; | awk '{s+=$1} END {print s}')
+TOTAL_KB=$((TOTAL_BYTES / 1024))
+echo "Gzipped JS total: ${TOTAL_KB} KB (threshold ${THRESHOLD_KB} KB)"
+
+[ "$TOTAL_KB" -lt "$THRESHOLD_KB" ] &amp;&amp; exit 0 || exit 1
+</pre>
+<p><strong>Key choice:</strong> Compare against <em>gzipped</em> size — that's what actually crosses the network. The 300 KB threshold is comfortably between the known-good (~240) and known-bad (~510) bands.</p>
+</details>
+
+<h3>Exercise 5 — The Race Condition</h3>
+<p><strong>Scenario:</strong> A function <code>chargeCard()</code> sometimes double-charges. It happens ~10% of concurrent calls. The bug was introduced in the last 100 commits. Write a predicate. (Hint: this is harder than the others.)</p>
+
+<details>
+<summary>Model solution — with k-of-k voting</summary>
+<pre class="code" data-lang="javascript" data-title="ex-5-solution.mjs">#!/usr/bin/env node
+// ex-5-solution.mjs — Exercise 5 model.
+// Race conditions are inherently noisy. We exercise the suspected race many
+// times, then use a binomial threshold to decide "this commit is bad."
+import { spawnSync } from 'child_process';
+
+if (spawnSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], { stdio: 'ignore' }).status !== 0) process.exit(125);
+
+let chargeCard, resetCardState;
+try { ({ chargeCard, resetCardState } = await import('./src/payments.mjs')); } catch { process.exit(125); }
+
+const N_TRIALS    = 50;          // run the race-prone code path 50 times
+const FAIL_THRESH = 3;           // 3+ double-charges = predicate says "bad"
+
+let doubleCharges = 0;
+for (let i = 0; i &lt; N_TRIALS; i++) {
+  resetCardState();
+  // Two concurrent calls — race the lock.
+  const [r1, r2] = await Promise.all([chargeCard('card_x', 100), chargeCard('card_x', 100)]);
+  if (r1.charged + r2.charged &gt; 100) doubleCharges++;     // bug fires
+}
+
+console.log(`double-charges: ${doubleCharges} / ${N_TRIALS}`);
+if (doubleCharges &gt;= FAIL_THRESH) process.exit(1);
+
+// Even with the right behavior, sometimes the race never fires. To avoid
+// returning "good" when we just got lucky, require enough trials with at
+// least one near-race detected. (For complex races, k-of-k voting is
+// the right answer at the bisection level — see Part IX Bayesian.)
+process.exit(0);
+</pre>
+<p><strong>Key choice:</strong> Race conditions are noisy by nature. We trade per-round time for confidence: run 50 trials per round, threshold at 3. If the bug fires &gt; 5% of the time, this catches it almost always.</p>
+</details>
+
+<h3>Self-grading</h3>
+<table class="cmp">
+<tr><th>If your solution…</th><th>You're at level…</th></tr>
+<tr><td>Was a single CLI invocation, no setup or cleanup</td><td>L3 — read more of the curriculum, then try again</td></tr>
+<tr><td>Had setup, exercise, observation in clear sections — but no cleanup trap</td><td>L4 — close; add the trap and re-read XIII.1</td></tr>
+<tr><td>Had all five sections; correct 125 vs 1 distinction; reasonable threshold choice</td><td>L5 — you've got it</td></tr>
+<tr><td>Also noticed the issues the model solutions deliberately avoid (JIT warm-up; locale; rate limits)</td><td>L6 — you're writing the predicates the team uses for the hard incidents</td></tr>
+<tr><td>Pre-wrote the worksheet and the meta-predicate sanity check before starting</td><td>L7 — you'd be reviewing the team's predicates, not just writing them</td></tr>
+</table>
+
+<div class="callout good">
+<div class="callout-title">A drill that compounds</div>
+<p>For the next ten bugs you bisect at work, write the predicate alone first. Then ask a senior teammate to review just the predicate (not the bisection result). Their feedback is the fastest single way to develop predicate-writing craft. Three or four review cycles and your predicates will be self-reviewing.</p>
+</div>
+</template>
+
+<template data-page-title="Sharing Predicates" data-part="XIII — The Craft">
+<span class="badge">Part XIII · The Craft of Writing Predicates</span>
+<h2 class="page-title">Sharing Predicates — Making Them Survive Their Author</h2>
+<p class="lede">A predicate you wrote in a panic at 2am for one bisection is fine. A predicate that lives in your repo for two years and is run by every engineer who joins the team needs different qualities. This final page is about making predicates that survive — read, understood, and used by people who weren't there when you wrote them.</p>
+
+<h3>The five qualities of a sharable predicate</h3>
+
+<table class="cmp">
+<tr><th>Quality</th><th>What it means</th></tr>
+<tr><td><strong>1. Documented intent</strong></td><td>The header explains WHY this predicate exists — what bug it found, what monotonic property it tests</td></tr>
+<tr><td><strong>2. Explicit inputs</strong></td><td>Every env var the predicate reads is listed and documented at the top</td></tr>
+<tr><td><strong>3. Example invocation</strong></td><td>The header includes a copy-pasteable example of how to run it</td></tr>
+<tr><td><strong>4. Self-test mode</strong></td><td>Running the predicate with <code>--check</code> runs the meta-predicate against the known endpoints</td></tr>
+<tr><td><strong>5. Failure-mode catalog</strong></td><td>Known ways this predicate can go wrong, with the fix for each</td></tr>
+</table>
+
+<h3>The shareable predicate template</h3>
+
+<pre class="code" data-lang="shell" data-title="shareable-predicate.sh">#!/usr/bin/env bash
+# ============================================================================
+# checkout-latency-predicate.sh
+# ----------------------------------------------------------------------------
+# PURPOSE
+#   Detects the commit at which p99 latency of GET /checkout exceeded 300 ms.
+#   Originally written to find the regression introduced ~2026-04-15.
+#
+# CONTRACT
+#   exit 0   → p99 of 20 sequential requests &lt; 300 ms
+#   exit 1   → p99 ≥ 300 ms
+#   exit 125 → environment problem; commit is untestable (build/install failed,
+#              server didn't start, &gt; 25% of measurement requests failed)
+#
+# INPUTS (environment variables — all optional)
+#   THRESHOLD_SEC   default 0.3 — the p99 threshold in seconds
+#   N_SAMPLES       default 20  — how many request measurements per round
+#   READY_TIMEOUT_S default 15  — how long to wait for server readiness
+#
+# EXAMPLE
+#   git bisect start HEAD release-2026-04-15 -- services/checkout/
+#   git bisect run ./checkout-latency-predicate.sh
+#
+# SELF-TEST
+#   ./checkout-latency-predicate.sh --check
+#     runs the predicate against known-good (a3f9c81) and known-bad (e7b2a91)
+#     and verifies the expected exit codes. Exit 0 if predicate is calibrated.
+#
+# KNOWN FAILURE MODES
+#   - If pnpm registry is unreachable, install fails → exit 125 (correct).
+#   - If port 3000 was already in use by a stuck process, the server may
+#     start on the random port but `kill` of the previous one may leak a
+#     socket; rerun the bisection in a fresh shell.
+#   - If you bisect across commits that pre-date the introduction of
+#     /health, the readiness loop times out — set READY_TIMEOUT_S=60
+#     and accept slower rounds.
+#
+# AUTHOR &amp; HISTORY
+#   alex.chen@example.com — initial — 2026-06-04
+#   maintained by @perf-eng-team
+# ============================================================================
+set -uo pipefail
+
+THRESHOLD_SEC="${THRESHOLD_SEC:-0.3}"
+N_SAMPLES="${N_SAMPLES:-20}"
+READY_TIMEOUT_S="${READY_TIMEOUT_S:-15}"
+
+# --- Self-test mode -------------------------------------------------------
+if [ "${1:-}" = "--check" ]; then
+  declare -a CHECKS=( "a3f9c81:0" "e7b2a91:1" )
+  for c in "${CHECKS[@]}"; do
+    sha="${c%:*}" expected="${c#*:}"
+    git checkout -q "$sha" || { echo "skip: can't checkout $sha"; continue; }
+    "$0" &gt;/dev/null 2&gt;&amp;1
+    got=$?
+    [ "$got" = "$expected" ] || { echo "FAIL $sha expected $expected got $got"; exit 1; }
+  done
+  echo "Calibration OK"; exit 0
+fi
+
+# --- Setup ---------------------------------------------------------------
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm build &gt;/dev/null 2&gt;&amp;1                                     || exit 125
+
+# --- Cleanup registered first --------------------------------------------
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()')
+SERVER_PID=""
+SCRATCH=$(mktemp -d)
+cleanup() {
+  [ -n "$SERVER_PID" ] &amp;&amp; kill "$SERVER_PID" 2&gt;/dev/null || true
+  rm -rf "$SCRATCH"
+}
+trap cleanup EXIT INT TERM
+
+# --- Exercise ------------------------------------------------------------
+PORT=$PORT node dist/server.js &gt; "$SCRATCH/server.log" 2&gt;&amp;1 &amp;
+SERVER_PID=$!
+
+READY=0
+for _ in $(seq 1 $((READY_TIMEOUT_S * 2))); do
+  curl -sf "http://localhost:$PORT/health" &gt;/dev/null &amp;&amp; { READY=1; break; }
+  sleep 0.5
+done
+[ "$READY" = "0" ] &amp;&amp; { echo "server failed to start"; cat "$SCRATCH/server.log"; exit 125; }
+
+# --- Observation ---------------------------------------------------------
+declare -a measurements=()
+fails=0
+for i in $(seq 1 "$N_SAMPLES"); do
+  out=$(curl -sf -o /dev/null -m 5 -w '%{http_code} %{time_total}\n' \
+        "http://localhost:$PORT/checkout" || echo "000 0")
+  code=$(echo "$out" | awk '{print $1}')
+  ms=$(echo "$out"   | awk '{print $2}')
+  [ "$code" = "200" ] &amp;&amp; measurements+=("$ms") || fails=$((fails + 1))
+done
+
+# --- Exit ----------------------------------------------------------------
+if [ "$fails" -gt $((N_SAMPLES / 4)) ]; then
+  echo "too many fails ($fails/$N_SAMPLES) — untestable"; exit 125
+fi
+
+p99=$(printf '%s\n' "${measurements[@]}" | sort -n \
+      | awk -v n="$((${#measurements[@]} * 99 / 100))" 'NR==n+1')
+echo "p99 = ${p99}s (threshold ${THRESHOLD_SEC}s, fails ${fails}/${N_SAMPLES})"
+
+awk -v p="$p99" -v t="$THRESHOLD_SEC" 'BEGIN { exit (p &lt; t ? 0 : 1) }'
+</pre>
+
+<h3>Where to commit predicates</h3>
+<table class="cmp">
+<tr><th>Predicate's role</th><th>Where it lives</th></tr>
+<tr><td>One-off, this-bisection-only</td><td>Don't commit; delete after bisection completes</td></tr>
+<tr><td>Used quarterly for recurring regression checks</td><td><code>scripts/bisect/</code> in the repo it tests</td></tr>
+<tr><td>Used across multiple repos by the team</td><td>A shared team tools repo, referenced as a git submodule or via <code>pnpm dlx git+...</code></td></tr>
+<tr><td>Generic enough to publish</td><td>An npm/PyPI package, with versioning</td></tr>
+</table>
+
+<h3>The CI integration that compounds</h3>
+<p>Every saved predicate is a regression test for its bug. Wire it into CI as a one-shot post-deploy check:</p>
+
+<pre class="code" data-lang="yaml" data-title="ci-predicate-check.yml">name: regression-checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  regression-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: '.nvmrc', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Run every saved bisection predicate. Each one prevents the bug
+      # that bisection originally found from sneaking back in.
+      - name: Run saved bisection predicates
+        run: |
+          for p in scripts/bisect/*.sh; do
+            echo "::group::$p"
+            "$p"
+            rc=$?
+            [ "$rc" = "0" ] || { echo "::error::$p exited $rc"; exit 1; }
+            echo "::endgroup::"
+          done
+</pre>
+
+<p>Now every saved predicate prevents its bug from regressing. Your bisection investments compound forever.</p>
+
+<h3>The handoff conversation</h3>
+<p>When a teammate inherits a predicate you wrote, they should be able to answer three questions from the file alone:</p>
+<ol>
+  <li><strong>What bug did this find?</strong> Answer: the PURPOSE section of the header.</li>
+  <li><strong>How do I run it?</strong> Answer: the EXAMPLE section.</li>
+  <li><strong>What if it gives weird results?</strong> Answer: the KNOWN FAILURE MODES section.</li>
+</ol>
+
+<p>If any of those three answers requires asking you, the predicate is under-documented. Add the missing section. Next handoff will be quieter.</p>
+
+<h3>Predicate code review checklist (for reviewers)</h3>
+
+<pre class="code" data-lang="markdown" data-title="predicate-review.md"># Predicate PR Review Checklist
+
+## Documentation
+[ ] Header explains PURPOSE in 1–3 sentences
+[ ] CONTRACT section lists exit codes and their meanings
+[ ] INPUTS lists every env var with defaults and descriptions
+[ ] EXAMPLE shows a copy-pasteable invocation
+[ ] KNOWN FAILURE MODES lists 1+ failure with its remediation
+
+## Structure (Part XIII.1)
+[ ] Five sections clearly delineated (or equivalent in another language)
+[ ] Cleanup registered before exercise
+
+## Correctness (Part XIII.5 anti-patterns)
+[ ] Env errors → exit 125
+[ ] Random port if a server is involved
+[ ] No external services (or explicitly documented exception)
+[ ] Time / locale / TZ pinned
+[ ] Hard timeouts on long operations
+[ ] Threshold chosen with documented good/bad measurements
+
+## Calibration
+[ ] `--check` mode verifies known endpoints
+[ ] At least one good SHA and one bad SHA in the self-test
+
+## Sustainability
+[ ] Committed to a discoverable location
+[ ] Referenced from regression CI
+</pre>
+
+<div class="callout good">
+<div class="callout-title">The closing principle of the craft</div>
+<p>A predicate is a small program that decides truth about your code's history. The discipline of writing it well is one of the most leveraged skills in engineering — every good predicate finds one bug now and prevents that class of bug forever after. The investment in writing it with care: thirty extra minutes. The return: years of saved debugging time, for everyone who comes after you. <strong>This is the work that distinguishes engineering hobbies from engineering professions, and engineering professions from engineering excellence.</strong></p>
+<p>You now know how to do it. Go build the next one.</p>
+</div>
+<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how. And design the next system so that future bisections always work. And write predicates that survive you.</p>
 </template>
 
 

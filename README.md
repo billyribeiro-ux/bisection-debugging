@@ -1,17 +1,22 @@
 # Bisection Debugging — Principal Engineer's Curriculum
 
-A **68-page curriculum** designed to take someone from "I've never coded
-before" through the full L7+ principal-engineer mental model. Starts with
+A **76-page curriculum** designed to take someone from "I've never coded
+before" to the full L7+ principal-engineer mental model — including the
+hands-on craft of writing bisection predicates from scratch. Starts with
 the terminal and binary search, builds through git bisect, advanced bisection
 (Shannon-information-theoretic lower bound, Bayesian bisection under noise,
 hierarchical delta debugging, compiler-pass bisection, supply-chain time
 bisection, distributed trace bisection), modern-systems bisection
 (Kubernetes, Terraform, feature flags, Docker layers, API contracts), the
 principal-engineer concerns (designing for bisectability, incident response,
-the business case, mentoring, postmortems), and original frameworks +
-benchmark data (the Bisection Cost Model, the History Quality Index, the
-Predicate Hermeticity Score, ecosystem comparisons, a runnable game-day
-workshop, and a forward-looking 2030 view).
+the business case, mentoring, postmortems), original frameworks + benchmark
+data (the Bisection Cost Model, History Quality Index, Predicate Hermeticity
+Score, ecosystem comparisons, runnable game-day workshop, 2030 forward look),
+and the craft of writing predicates (the five-section anatomy, a pre-flight
+worksheet, a fully-narrated step-by-step build, the five reusable patterns,
+ten anti-patterns to avoid, predicate-debugging techniques, five practice
+exercises with model solutions, and how to make predicates survive their
+author).
 
 ## Quickstart (60 seconds)
 
@@ -121,6 +126,17 @@ rubric (L3–L7) for hiring & leveling · the anti-bisection patterns catalog
 (10 patterns) · a runnable three-hour game-day workshop · bisection across
 language ecosystems (Node, Python, Go, Rust, Java, Ruby, PHP, .NET, C/C++) ·
 bisection in 2030 (opinionated forward look).
+
+**Part XIII — The Craft of Writing Predicates** · the five-section anatomy
+of every predicate · the pre-flight worksheet you fill in before opening
+a text editor · a fully-narrated five-iteration build of a real predicate
+(naive 5 lines → bullet-proof 35 lines) · the five reusable predicate
+patterns (type-check, smoke, behavioral assertion, perf-budget, golden-file)
+· the ten predicate anti-patterns that make bisections lie · how to debug
+a broken predicate (four symptoms, four diagnostic procedures) · five
+hands-on practice exercises with worksheet sketches and model solutions ·
+how to make predicates survive their author (sharing, CI integration,
+review checklists).
 
 ## Requirements
 
