@@ -1,15 +1,17 @@
 # Bisection Debugging — Principal Engineer's Curriculum
 
-A **58-page curriculum** designed to take someone from "I've never coded
+A **68-page curriculum** designed to take someone from "I've never coded
 before" through the full L7+ principal-engineer mental model. Starts with
 the terminal and binary search, builds through git bisect, advanced bisection
 (Shannon-information-theoretic lower bound, Bayesian bisection under noise,
 hierarchical delta debugging, compiler-pass bisection, supply-chain time
 bisection, distributed trace bisection), modern-systems bisection
-(Kubernetes, Terraform, feature flags, Docker layers, API contracts), and
-ends with the principal-engineer-level concerns: designing systems to be
-bisectable, incident response, the business case, mentoring, and
-postmortems.
+(Kubernetes, Terraform, feature flags, Docker layers, API contracts), the
+principal-engineer concerns (designing for bisectability, incident response,
+the business case, mentoring, postmortems), and original frameworks +
+benchmark data (the Bisection Cost Model, the History Quality Index, the
+Predicate Hermeticity Score, ecosystem comparisons, a runnable game-day
+workshop, and a forward-looking 2030 view).
 
 ## Quickstart (60 seconds)
 
@@ -109,6 +111,16 @@ and how to build the business case · when NOT to bisect (the decision
 framework) · mentoring debugging skill on your team · building a culture
 of reproducibility · postmortems, blameless culture, and continuous
 improvement.
+
+**Part XII — Frameworks, Data & Future** · the Bisection Cost Model (with
+working calculator) · real-world benchmark tables · the History Quality
+Index (HQI) — a 100-point scoring rubric for repo bisectability · the
+Predicate Hermeticity Score (PHS) — 70-point predicate quality rubric ·
+seven hard-won composite incident stories · the debugging-skill calibration
+rubric (L3–L7) for hiring & leveling · the anti-bisection patterns catalog
+(10 patterns) · a runnable three-hour game-day workshop · bisection across
+language ecosystems (Node, Python, Go, Rust, Java, Ruby, PHP, .NET, C/C++) ·
+bisection in 2030 (opinionated forward look).
 
 ## Requirements
 

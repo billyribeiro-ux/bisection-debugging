@@ -133,6 +133,25 @@ const CATEGORY = {
   'incident-timeline-bisect.sh': 'principal',
   'postmortem-template.md':      'principal',
   'bisectability-scorecard.md':  'principal',
+
+  // Part XII — Frameworks, data, and future
+  'bisection-cost-model.mjs':    'frameworks',
+  'history-quality-index.sh':    'frameworks',
+  'game-day-setup.sh':           'frameworks',
+  'game-day-predicates.sh':      'frameworks',
+  'game-day-retro.md':           'frameworks',
+  'anti-pattern-checklist.md':   'frameworks',
+
+  // Per-ecosystem bisection snippets (Part XII)
+  'bisect-node.sh':              'ecosystems',
+  'bisect-python-uv.sh':         'ecosystems',
+  'bisect-python-pip.sh':        'ecosystems',
+  'bisect-go.sh':                'ecosystems',
+  'bisect-rust.sh':              'ecosystems',
+  'bisect-java-gradle.sh':       'ecosystems',
+  'bisect-ruby.sh':              'ecosystems',
+  'bisect-php.sh':               'ecosystems',
+  'bisect-dotnet.sh':            'ecosystems',
 };
 
 // Titles whose target path is special (lives outside scripts/).
@@ -184,6 +203,11 @@ const SKIP_NAMES = new Set([
   'npmrc.ini',
   'day-9-npmrc.ini',
   'day-1-npmrc.ini',
+  // Part XII — illustrative blocks not extracted
+  'cost-model.txt',
+  'worked-examples.txt',
+  'phs-example-good.sh',
+  'phs-example-bad.sh',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [

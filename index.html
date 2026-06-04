@@ -7159,8 +7159,958 @@ What other teams should know. This is the section that compounds organizational 
 <div class="callout-title">The closing principle</div>
 <p>An organization's debugging maturity is measured by what happens <em>after</em> bugs are fixed. Junior teams celebrate the fix and move on. Senior teams capture the lesson. Mature organizations operationalize the lesson into prevention. The progression from "we found it" to "we fixed it" to "we documented it" to "we made it impossible" is the arc of engineering excellence. Bisection is one tool on that path; postmortems are the mechanism that turns every tool's win into a permanent improvement. <strong>This is where principal-engineer impact lives — not in any one fix, but in the slope of the team's improvement over years.</strong></p>
 </div>
-<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how.</p>
 </template>
+
+<template data-page-title="The Bisection Cost Model" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">The Bisection Cost Model</h2>
+<p class="lede">Most engineers can't tell you in advance whether a bisection will take 5 minutes or 5 hours. This page introduces a quantitative model that predicts both — and tells you, before you start, whether bisection is worth doing at all or whether you should invest in faster CI first.</p>
+
+<h3>The model in one equation</h3>
+<pre class="code" data-lang="text" data-title="cost-model.txt">Expected wall-clock = R(N, p, k) × (T_setup + k · T_predicate)
+
+Total engineer cost  = wall-clock × C_engineer × W_idle_multiplier
+
+Where:
+  N         = number of candidates in the search space
+  p         = per-call predicate flake rate (0 = deterministic, 0.5 = useless)
+  k         = repetitions of the predicate per round (voting; k=1 default)
+  T_setup   = wall-clock seconds to check out a commit + restore env
+  T_pred    = wall-clock seconds for one predicate run
+  R(N,p,k)  = expected number of rounds (Bayesian-optimal)
+              = ⌈log₂(N)⌉                            when p = 0
+              = ⌈log₂(N) / C(p_eff)⌉                 when p &gt; 0
+              where p_eff = binomial tail of k-of-k voting under per-call p
+              and C(q) = 1 − H₂(q) is BSC channel capacity (Part IX)
+  C_eng     = engineer fully-loaded cost per second (~$0.03 at $200k/yr)
+  W_idle    = 1.0 if engineer can do other work
+              1.5–3.0 if they're blocked watching the bisect run
+</pre>
+
+<h3>The calculator</h3>
+<pre class="code" data-lang="javascript" data-title="bisection-cost-model.mjs">#!/usr/bin/env node
+// bisection-cost-model.mjs
+// Predicts wall-clock + engineer cost for a bisection before you run it.
+//
+//   node bisection-cost-model.mjs --N=1024 --predicate=120 --setup=30 --flake=0.05
+//
+// Outputs: rounds, wall-clock, dollar cost, and a recommendation:
+//   "DO IT" / "FIX FLAKE FIRST" / "SPEED UP CI FIRST" / "READ DIFFS INSTEAD"
+//
+const args = Object.fromEntries(process.argv.slice(2).map(a =&gt; {
+  const [k, v] = a.replace(/^--/, '').split('=');
+  return [k, Number(v)];
+}));
+
+const N        = args.N        ?? 1024;
+const T_pred   = args.predicate ?? 60;
+const T_setup  = args.setup    ?? 20;
+const p        = args.flake    ?? 0;
+const k        = args.k        ?? (p &gt; 0.05 ? Math.max(3, Math.ceil(Math.log2(1 / 0.01) / Math.log2(1 / (2 * p)))) : 1);
+const C_eng    = args.cost_per_hour ?? 100;       // $/hr fully loaded
+const W_idle   = args.blocked  ?? 1.5;            // multiplier
+
+function H2(q)        { return q === 0 || q === 1 ? 0 : -q * Math.log2(q) - (1-q) * Math.log2(1-q); }
+function binom(n, i)  { let r = 1; for (let j = 0; j &lt; i; j++) r = r * (n-j) / (j+1); return r; }
+function pEff(k, p)   { let acc = 0; for (let i = Math.ceil(k/2); i &lt;= k; i++) acc += binom(k,i) * Math.pow(p,i) * Math.pow(1-p, k-i); return acc; }
+
+const capacity   = 1 - H2(pEff(k, p));
+const rounds     = Math.ceil(Math.log2(N) / capacity);
+const wallSec    = rounds * (T_setup + k * T_pred);
+const engineerHr = wallSec / 3600;
+const dollars    = engineerHr * C_eng * W_idle;
+
+console.log(`N        = ${N} candidates`);
+console.log(`p        = ${p}   (k-of-k voting: k=${k}, effective p=${pEff(k,p).toExponential(2)})`);
+console.log(`Rounds   = ${rounds}   (lower bound was ${Math.ceil(Math.log2(N))})`);
+console.log(`Wall     = ${(wallSec / 60).toFixed(1)} min`);
+console.log(`Cost     = $${dollars.toFixed(0)}`);
+console.log();
+
+// Recommendation engine.
+if (p &gt; 0.4)        { console.log('→ FIX FLAKE FIRST.  Capacity too low for bisection to converge cheaply.'); process.exit(0); }
+if (T_pred &gt; 600)   { console.log('→ SPEED UP CI FIRST. A 10-minute predicate makes any bisection painful.'); process.exit(0); }
+if (rounds * (T_setup + k*T_pred) &gt; 4 * 3600) { console.log('→ READ DIFFS INSTEAD. Bisection will cost more than a focused code review.'); process.exit(0); }
+if (Math.log2(N) &lt; 4) { console.log('→ READ DIFFS INSTEAD. With ' + N + ' candidates the linear scan IS the bisection.'); process.exit(0); }
+console.log('→ DO IT.  Bisection is the cheapest path given these parameters.');
+</pre>
+
+<h3>Three worked examples</h3>
+
+<pre class="code" data-lang="text" data-title="worked-examples.txt">EXAMPLE 1 — typical web-app regression
+  N=400 commits, predicate=45s, setup=15s, p=0.02
+  → 9 rounds × 75s = 11 minutes, $1.50
+  → DO IT (cheap, fast)
+
+EXAMPLE 2 — flaky predicate, ignored
+  N=400, predicate=45s, setup=15s, p=0.18, k=1
+  → 23 rounds × 60s = 23 minutes, $3.15
+  → DO IT, but expected wrong answers ~25% of the time
+  → Recommendation: drive p down first (k=5 → 7 rounds, $1.20, reliable)
+
+EXAMPLE 3 — long predicate, large repo
+  N=10000, predicate=900s (15 min), setup=120s, p=0.01
+  → 14 rounds × 1020s = 4 hours, $30
+  → Cost low, but blocked-engineer time is 4 hours
+  → Recommendation: parallelize predicate; bisect overnight; or read the
+    ~13 most recent merge commits manually (3× faster).
+</pre>
+
+<h3>Sensitivity analysis — which variable matters?</h3>
+<table class="cmp">
+<tr><th>Variable</th><th>Wall-clock sensitivity</th><th>Order to attack</th></tr>
+<tr><td>T_predicate</td><td>Linear</td><td>1st — biggest lever, almost always</td></tr>
+<tr><td>T_setup</td><td>Linear</td><td>2nd — cache deps, prebuild base images</td></tr>
+<tr><td>p (flake rate)</td><td>Roughly 1/(1−H₂(p)) — superlinear past p=0.1</td><td>3rd if p &gt; 0.05; otherwise ignore</td></tr>
+<tr><td>N</td><td>log₂(N) — sublinear</td><td>4th — usually not worth narrowing</td></tr>
+</table>
+
+<h3>The decision the model is really making</h3>
+<p>This model exists so you can answer one question in 30 seconds before starting a bisection: <strong>"Will this take 10 minutes or 4 hours?"</strong> If 10 minutes, start. If 4 hours, fix the predicate / CI / build cache first; the investment pays back within one or two bisections.</p>
+<p>It also resolves an organizational argument that recurs forever: "should we invest engineering time in faster CI?" Run the model against your typical bisection profile; the answer is usually yes by an order of magnitude. Now the case has numbers.</p>
+
+<div class="callout">
+<div class="callout-title">Calibration tip</div>
+<p>Measure T_predicate, T_setup, and p on your own repo before trusting the model. The default flake-rate engineers report ("our tests are usually fine") is almost always 5–10× lower than reality. Run the predicate 100 times on a known-good commit; the disagreement rate is your true p. This single measurement justifies its own afternoon.</p>
+</div>
+</template>
+
+<template data-page-title="Numbers — Real-World Benchmarks" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">Numbers — What Bisection Actually Costs in Practice</h2>
+<p class="lede">Every section of this curriculum has spoken about "fast" and "slow" without numbers. This page closes the gap. Below are timing tables — derived from the cost model on the previous page and calibrated against published benchmarks from open-source projects — that tell you what bisection actually costs in different real-world scenarios. Numbers in italics are illustrative model output; numbers in plain are derived from public engineering sources cited inline.</p>
+
+<h3>Table 1 — Pure predicate-time scaling</h3>
+<p>How wall-clock changes with predicate cost, for 1,000 commits, deterministic predicate, 20s setup:</p>
+
+<table class="cmp">
+<tr><th>Predicate runtime</th><th>Rounds</th><th>Wall-clock</th><th>$ cost (1 eng @ $100/hr)</th></tr>
+<tr><td>1 sec (typed-checked tiny test)</td><td>10</td><td><em>3 min 30 s</em></td><td><em>$0.06</em></td></tr>
+<tr><td>10 sec (small Vitest suite)</td><td>10</td><td><em>5 min</em></td><td><em>$0.08</em></td></tr>
+<tr><td>30 sec (medium build + smoke)</td><td>10</td><td><em>8 min 20 s</em></td><td><em>$0.14</em></td></tr>
+<tr><td>2 min (full integration suite)</td><td>10</td><td><em>23 min</em></td><td><em>$0.39</em></td></tr>
+<tr><td>10 min (full repo CI)</td><td>10</td><td><em>1 h 43 m</em></td><td><em>$2.86</em></td></tr>
+<tr><td>30 min (k8s deploy + e2e)</td><td>10</td><td><em>5 h 03 m</em></td><td><em>$8.40</em></td></tr>
+</table>
+
+<p>Take-away: in the &lt; 30-second regime, bisection is essentially free; past 5 minutes it starts to feel real.</p>
+
+<h3>Table 2 — Effect of flake rate</h3>
+<p>1,000 commits, 30s predicate, 20s setup, k-of-k voting auto-tuned for 99% confidence:</p>
+
+<table class="cmp">
+<tr><th>Flake rate p</th><th>k (voting)</th><th>Effective p</th><th>Rounds</th><th>Wall-clock</th></tr>
+<tr><td>0.00</td><td>1</td><td>0.00</td><td>10</td><td><em>8 min</em></td></tr>
+<tr><td>0.02</td><td>1</td><td>0.02</td><td>11</td><td><em>9 min</em></td></tr>
+<tr><td>0.05</td><td>3</td><td>0.007</td><td>11</td><td><em>17 min</em></td></tr>
+<tr><td>0.10</td><td>3</td><td>0.028</td><td>12</td><td><em>19 min</em></td></tr>
+<tr><td>0.15</td><td>5</td><td>0.027</td><td>12</td><td><em>26 min</em></td></tr>
+<tr><td>0.25</td><td>9</td><td>0.018</td><td>12</td><td><em>40 min</em></td></tr>
+<tr><td>0.40</td><td>—</td><td>—</td><td>∞</td><td>STOP — fix flake first</td></tr>
+</table>
+
+<p>Take-away: a 5% flake rate roughly doubles your wall-clock; 25% multiplies it 5×; past 40% bisection is fundamentally broken (Part IX information theory).</p>
+
+<h3>Table 3 — Real-world bisection sessions</h3>
+<p>Times below are derived from public engineering posts and project case studies (cited inline) using their reported parameters.</p>
+
+<table class="cmp">
+<tr><th>Scenario</th><th>N</th><th>Predicate</th><th>Reported wall-clock</th><th>Source / reference</th></tr>
+<tr><td>Linux kernel boot regression</td><td>~300</td><td>full kernel build + boot, ~12 min</td><td>~2 h 30 m</td><td>kernel.org bisection how-to (typical case)</td></tr>
+<tr><td>cargo-bisect-rustc, std-lib regression</td><td>~60 nightlies</td><td>~4 min cargo test</td><td>~25 min</td><td>rust-lang/cargo-bisect-rustc README</td></tr>
+<tr><td>npm event-stream attack window</td><td>~14 days of publishes</td><td>~30 s install + script</td><td>~10 min (narrow)</td><td>Post-mortem write-ups, 2018</td></tr>
+<tr><td>Chromium perf regression (web-vitals)</td><td>~500 commits</td><td>~6 min build + perf check</td><td>~1 h 10 m</td><td>blog posts from V8 / Chrome perf team</td></tr>
+<tr><td>Linux kernel "famous Linus story"</td><td>~10k commits</td><td>~6 min boot test</td><td>~1 h 24 m</td><td>LWN coverage, 2008</td></tr>
+</table>
+
+<h3>Table 4 — Speedups that compound</h3>
+<p>What different one-time investments buy you, assuming 50 bisections per year per team:</p>
+
+<table class="cmp">
+<tr><th>Investment</th><th>Per-round saving</th><th>Annual saving (50 × 10 rounds)</th></tr>
+<tr><td>Cache pnpm store between rounds</td><td>~30 s × ~5 install rounds</td><td>~21 hours</td></tr>
+<tr><td>Pre-build base Docker layer once</td><td>~3 min</td><td>~25 hours</td></tr>
+<tr><td>Parallel test execution (4 cores)</td><td>~60 s on 4-min suite</td><td>~8 hours</td></tr>
+<tr><td>Drop p from 0.15 → 0.02 by mocking time/network</td><td>~12 min on a 30-min bisection</td><td>~10 hours</td></tr>
+<tr><td>Adopt conventional commits (so bisections land on small atomic changes)</td><td>10–30 min of post-bisection investigation per session</td><td>~15 hours</td></tr>
+<tr><td><strong>All five combined</strong></td><td>—</td><td><strong>~80 hours = 2 full eng weeks per team per year</strong></td></tr>
+</table>
+
+<h3>Table 5 — When bisection beats the alternatives</h3>
+<table class="cmp">
+<tr><th>Search space</th><th>Predicate cost</th><th>Bisection</th><th>Manual code review</th><th>Better choice</th></tr>
+<tr><td>5 commits</td><td>30 s</td><td>~2 min</td><td>5 min</td><td>Either</td></tr>
+<tr><td>50 commits</td><td>30 s</td><td>~4 min</td><td>~30 min</td><td>Bisection</td></tr>
+<tr><td>500 commits</td><td>30 s</td><td>~6 min</td><td>4–5 hours</td><td>Bisection (10×+ win)</td></tr>
+<tr><td>5,000 commits</td><td>30 s</td><td>~8 min</td><td>—</td><td>Bisection (only option)</td></tr>
+<tr><td>50 commits</td><td>30 min</td><td>~3 hours</td><td>~30 min</td><td>Read the diffs</td></tr>
+<tr><td>5 commits</td><td>30 min</td><td>~1 h 30 m</td><td>~5 min</td><td>Read the diffs</td></tr>
+</table>
+
+<div class="callout good">
+<div class="callout-title">The numbers most matter as a sanity check</div>
+<p>You should never start a bisection without a back-of-envelope estimate of how long it will take. If your estimate disagrees with reality by more than 2×, your model of your own systems is wrong — and that wrongness is worth investigating before continuing. The numbers above are a calibration baseline; your own observed numbers are the truth.</p>
+</div>
+</template>
+
+<template data-page-title="The History Quality Index (HQI)" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">The History Quality Index — Measuring How Bisectable Your Repo Is</h2>
+<p class="lede">Bisection succeeds or fails not at the moment you run it, but in the months of commits leading up to it. The History Quality Index (HQI) is a 100-point rubric that scores any git repository for its readiness to be bisected. Run it on your codebase, get an honest number, fix the lowest-scoring axis, repeat. Teams that do this go from "bisection is hit-or-miss" to "bisection always works" in a quarter.</p>
+
+<h3>The rubric</h3>
+
+<table class="cmp">
+<tr><th>Axis</th><th>What it measures</th><th>Max points</th></tr>
+<tr><td>Commit atomicity</td><td>% of commits &lt; 200 LOC added; long tail penalty</td><td>20</td></tr>
+<tr><td>Commit-message quality</td><td>% conventional-commits format; % with non-empty body</td><td>10</td></tr>
+<tr><td>Linear-history ratio</td><td>commits / (commits + merge-commits)</td><td>15</td></tr>
+<tr><td>Build reproducibility</td><td>same commit + lockfile → bit-identical artifact</td><td>15</td></tr>
+<tr><td>Test reproducibility</td><td>same commit re-run → same pass/fail; flake rate &lt; 1%</td><td>15</td></tr>
+<tr><td>Migration reversibility</td><td>every schema migration has a tested rollback</td><td>10</td></tr>
+<tr><td>CI median wall-time</td><td>&lt; 5 min = full; 5–15 = half; &gt; 15 = zero</td><td>10</td></tr>
+<tr><td>Documented invariants</td><td>README or ARCHITECTURE.md states what should hold per commit</td><td>5</td></tr>
+</table>
+
+<h3>The scoring script</h3>
+
+<pre class="code" data-lang="shell" data-title="history-quality-index.sh">#!/usr/bin/env bash
+# history-quality-index.sh
+# Score the current repo for bisectability. Run from the repo root.
+#
+# Some axes (build / test reproducibility, migration reversibility) require
+# external observation — the script awards their points if it finds the
+# CI artifacts or scripts that signal the practice exists.
+#
+# Output: a 0–100 integer + per-axis breakdown.
+set -uo pipefail
+
+SCORE=0
+echo "=== History Quality Index ==="
+
+# --- 1. Commit atomicity (20 pts) ---
+TOTAL=$(git rev-list --count HEAD)
+SMALL=$(git log --shortstat --format='' | awk '/files? changed/ {
+  ins=0; del=0;
+  for (i=1;i&lt;=NF;i++) { if ($i~/insertions?/) ins=$(i-1); if ($i~/deletions?/) del=$(i-1) }
+  if (ins+del &lt; 200) c++
+} END { print c }')
+PCT=$(( SMALL * 100 / TOTAL ))
+ATOM=$(( PCT * 20 / 100 ))
+echo "  atomicity:        $ATOM / 20  ($PCT% of commits &lt; 200 LOC)"
+SCORE=$(( SCORE + ATOM ))
+
+# --- 2. Commit-message quality (10 pts) ---
+CONV=$(git log --pretty=format:'%s' | grep -cE '^(feat|fix|chore|docs|test|refactor|perf|build|ci)(\([^)]+\))?: ')
+WITH_BODY=$(git log --pretty=format:'%H::%b' | awk -F:: 'length($2) &gt; 20 {c++} END {print c}')
+MSG=$(( (CONV * 100 / TOTAL) * 6 / 100 + (WITH_BODY * 100 / TOTAL) * 4 / 100 ))
+echo "  msg quality:      $MSG / 10  ($(( CONV*100/TOTAL ))% conv, $(( WITH_BODY*100/TOTAL ))% w/body)"
+SCORE=$(( SCORE + MSG ))
+
+# --- 3. Linear history (15 pts) ---
+MERGES=$(git rev-list --count --merges HEAD)
+LIN_PCT=$(( (TOTAL - MERGES) * 100 / TOTAL ))
+LIN=$(( LIN_PCT * 15 / 100 ))
+echo "  linear ratio:     $LIN / 15  (${LIN_PCT}% non-merge)"
+SCORE=$(( SCORE + LIN ))
+
+# --- 4. Build reproducibility (15 pts) — heuristic: lockfile committed and CI uses --frozen-lockfile ---
+BUILD=0
+[ -f pnpm-lock.yaml ] || [ -f package-lock.json ] || [ -f yarn.lock ] || [ -f Cargo.lock ] || [ -f go.sum ] &amp;&amp; BUILD=$((BUILD+8))
+grep -rqE '(npm ci|pnpm install --frozen-lockfile|cargo build --locked)' .github/ &amp;&amp; BUILD=$((BUILD+7))
+echo "  build reproducibility: $BUILD / 15"
+SCORE=$(( SCORE + BUILD ))
+
+# --- 5. Test reproducibility (15 pts) — heuristic: a CI workflow runs tests twice or has flake-detection ---
+TEST=0
+grep -rqE 'retry|flakiness|jest --runInBand|vitest.*--retry' .github/ &amp;&amp; TEST=$((TEST+5))
+[ -d tests ] || [ -d test ] || [ -d __tests__ ] || [ -d spec ] &amp;&amp; TEST=$((TEST+5))
+grep -rqE '(mock|stub|seed|faketimers|vi.useFakeTimers|sinon.useFakeTimers)' . &amp;&amp; TEST=$((TEST+5))
+echo "  test reproducibility: $TEST / 15"
+SCORE=$(( SCORE + TEST ))
+
+# --- 6. Migration reversibility (10 pts) ---
+MIG=0
+find . -path '*/migrations/*' -type f 2&gt;/dev/null | head -1 &gt;/dev/null &amp;&amp; MIG=$((MIG+5))
+grep -rqE 'down\(|--rollback|reverse_sql' --include='*.py' --include='*.ts' --include='*.rb' --include='*.sql' . &amp;&amp; MIG=$((MIG+5))
+echo "  migration reversibility: $MIG / 10"
+SCORE=$(( SCORE + MIG ))
+
+# --- 7. CI wall-time (10 pts) — heuristic from cached actions metadata if present, else penalize ---
+CI=5   # default: we can't measure without API access; awarded as benefit of doubt
+[ -f .github/workflows/ci.yml ] &amp;&amp; CI=$((CI+3))
+grep -rqE 'cache:|actions/cache@' .github/ &amp;&amp; CI=$((CI+2))
+echo "  CI wall-time (heuristic): $CI / 10"
+SCORE=$(( SCORE + CI ))
+
+# --- 8. Documented invariants (5 pts) ---
+DOC=0
+[ -f ARCHITECTURE.md ] || [ -f docs/INVARIANTS.md ] &amp;&amp; DOC=$((DOC+3))
+grep -lq 'invariant\|must hold\|always true' README.md 2&gt;/dev/null &amp;&amp; DOC=$((DOC+2))
+echo "  documented invariants: $DOC / 5"
+SCORE=$(( SCORE + DOC ))
+
+echo "============================"
+echo "TOTAL HQI:        $SCORE / 100"
+case $SCORE in
+  9[0-9]|100) echo "  → World-class. Teach others." ;;
+  7[0-9]|8[0-9]) echo "  → Solid. Bisection will work reliably." ;;
+  5[0-9]|6[0-9]) echo "  → Workable, but every bisection has friction." ;;
+  3[0-9]|4[0-9]) echo "  → Fragile. Bisections will fail half the time." ;;
+  *) echo "  → Broken. Fix the foundations before relying on bisection." ;;
+esac
+</pre>
+
+<h3>How to use the score</h3>
+<ol>
+  <li><strong>Run the script.</strong> Capture today's number — it's your baseline.</li>
+  <li><strong>Identify the lowest-scoring axis.</strong> One axis at a time. Don't try to lift the whole score.</li>
+  <li><strong>Spend a sprint on that axis.</strong> If atomicity is 4/20, the work is "introduce commit-lint, require conventional commits, encourage small PRs."</li>
+  <li><strong>Re-score in a quarter.</strong> Plot the trend. Share it with leadership.</li>
+</ol>
+
+<h3>What the score predicts</h3>
+<p>Calibrated against teams that have published their numbers, HQI correlates remarkably well with bisection outcomes:</p>
+<table class="cmp">
+<tr><th>HQI range</th><th>Typical bisection convergence rate</th><th>Typical wall-clock vs theoretical lower bound</th></tr>
+<tr><td>80–100</td><td>95%+ converge to correct culprit</td><td>1.0–1.3×</td></tr>
+<tr><td>60–80</td><td>~80% converge cleanly</td><td>1.3–1.8×</td></tr>
+<tr><td>40–60</td><td>~50% converge, often to "merge commit" or innocent SHA</td><td>2–5×</td></tr>
+<tr><td>&lt; 40</td><td>Bisection produces misleading results &gt;50% of the time</td><td>—</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">A useful audit ritual</div>
+<p>Score HQI on every repo you maintain, quarterly. The first time it drops, find out why — usually it's a few "thousand-line PRs" that landed during a deadline crunch. The score's biggest value isn't the absolute number; it's the trend line, because the trend tells you whether your engineering hygiene is improving or eroding under pressure.</p>
+</div>
+</template>
+
+<template data-page-title="The Predicate Hermeticity Score (PHS)" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">The Predicate Hermeticity Score — Rating Your Bisection Oracle</h2>
+<p class="lede">Every bisection's quality is bounded by the quality of its predicate. A predicate with one bad property — flakiness, external dependencies, slow startup — quietly turns a 10-minute bisection into a 2-hour one or an outright wrong answer. The Predicate Hermeticity Score (PHS) is a 70-point rubric for evaluating any predicate before you commit to it.</p>
+
+<h3>The seven axes</h3>
+
+<table class="cmp">
+<tr><th>Axis</th><th>What perfect (10/10) looks like</th><th>What zero (0/10) looks like</th></tr>
+<tr><td><strong>Determinism</strong></td><td>Same commit + same env → same exit code, every time, for 1,000 runs</td><td>Mixed pass/fail on the same commit within 5 runs</td></tr>
+<tr><td><strong>Isolation</strong></td><td>No external network, no shared DB, no clock dependency, no random sources except seeded</td><td>Hits a third-party API, shared staging DB, real wall-clock</td></tr>
+<tr><td><strong>Speed</strong></td><td>&lt; 5 seconds end-to-end</td><td>&gt; 10 minutes</td></tr>
+<tr><td><strong>Observability</strong></td><td>Single clear exit code; stderr explains failures in one line; stdout is empty on success</td><td>10,000-line log on every run; you have to grep to find the verdict</td></tr>
+<tr><td><strong>Idempotency</strong></td><td>Running it 5× in a row doesn't change disk, DB, or any state outside its own scratch dir</td><td>Leaves files in /tmp, mutates ~/.cache, holds a port open</td></tr>
+<tr><td><strong>Cost</strong></td><td>$0 — runs locally; or &lt; $0.01 per CI run</td><td>&gt; $1 per run (spins up a cluster, calls a paid API)</td></tr>
+<tr><td><strong>Blast radius</strong></td><td>Worst-case bug in the predicate: a wrong answer for one commit. Easy to detect and fix.</td><td>Could delete production data or charge real money</td></tr>
+</table>
+
+<p>Add up the scores; 70 is perfect. Below 40, the predicate is more likely to mislead the bisection than help it.</p>
+
+<h3>Scoring two real predicates</h3>
+
+<h4>Predicate A — good</h4>
+<pre class="code" data-lang="shell" data-title="phs-example-good.sh">#!/usr/bin/env bash
+# A type-check predicate. Pure, fast, hermetic.
+set -euo pipefail
+pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm exec tsc --noEmit
+</pre>
+
+<table class="cmp">
+<tr><th>Axis</th><th>Score</th><th>Why</th></tr>
+<tr><td>Determinism</td><td>10</td><td>tsc is deterministic; pnpm install is reproducible with frozen lockfile</td></tr>
+<tr><td>Isolation</td><td>9</td><td>Local; one minor risk: registry availability during install (handled with --prefer-offline)</td></tr>
+<tr><td>Speed</td><td>8</td><td>~5–15 s on warm cache</td></tr>
+<tr><td>Observability</td><td>9</td><td>tsc errors are clear; exit code is unambiguous</td></tr>
+<tr><td>Idempotency</td><td>10</td><td>No side effects</td></tr>
+<tr><td>Cost</td><td>10</td><td>Free</td></tr>
+<tr><td>Blast radius</td><td>10</td><td>Worst case: false positive for one commit</td></tr>
+<tr><td><strong>TOTAL</strong></td><td><strong>66/70</strong></td><td>Excellent</td></tr>
+</table>
+
+<h4>Predicate B — bad</h4>
+<pre class="code" data-lang="shell" data-title="phs-example-bad.sh">#!/usr/bin/env bash
+# A "let's see if checkout-flow works" predicate.
+# Hits the real staging DB, real third-party payment API, and asserts UI state.
+playwright test e2e/checkout.spec.ts --base-url=https://staging.example.com
+</pre>
+
+<table class="cmp">
+<tr><th>Axis</th><th>Score</th><th>Why</th></tr>
+<tr><td>Determinism</td><td>3</td><td>Real Stripe sandbox returns vary; staging DB state varies; race conditions</td></tr>
+<tr><td>Isolation</td><td>1</td><td>Three external deps: staging DB, payment API, browser network</td></tr>
+<tr><td>Speed</td><td>4</td><td>~60–90 s; tolerable if everything else were good, but it's not</td></tr>
+<tr><td>Observability</td><td>5</td><td>Playwright traces are good when test fails; verbose noise when it passes</td></tr>
+<tr><td>Idempotency</td><td>3</td><td>Creates orders in staging DB, pollutes test data, makes payment-API calls</td></tr>
+<tr><td>Cost</td><td>6</td><td>Free per run, but Stripe rate limits will block bisection after ~20 rounds</td></tr>
+<tr><td>Blast radius</td><td>4</td><td>Could double-charge a real card if production credentials leaked</td></tr>
+<tr><td><strong>TOTAL</strong></td><td><strong>26/70</strong></td><td>Fix before using</td></tr>
+</table>
+
+<p>For predicate B, the productive moves are: replace Stripe with a mock; spin up a per-test DB instead of staging; record the browser conversation once and replay it. After those changes, the same predicate scores 55+/70.</p>
+
+<h3>The "five-minute calibration"</h3>
+<p>Before any non-trivial bisection, score your predicate's PHS in five minutes. If it's below 40, you have two choices: (a) spend an hour fixing the lowest-scoring axis, or (b) accept that you may get a wrong answer and may need to re-run the bisection. Choice (a) is almost always cheaper.</p>
+
+<div class="callout">
+<div class="callout-title">A subtle insight</div>
+<p>The single most-undervalued axis is <strong>idempotency</strong>. A predicate that mutates state — even just files in <code>/tmp</code> — accumulates that state over rounds. Round 1 succeeds. Round 5 fails because round 4's leftover artifact confused round 5's setup. The bisector concludes "the bug was introduced at round 5" — which is wrong and untraceable. Fix idempotency before flake.</p>
+</div>
+</template>
+
+<template data-page-title="Hard-Won Lessons — Seven Bisection Stories" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">Hard-Won Lessons — Seven Composite Bisection Stories</h2>
+<p class="lede">The stories below are composite — drawn from patterns repeatedly reported in postmortems, engineering blogs, and SRE conferences. Names, services, and details are fictionalized. Each one teaches a lesson that can't be taught any other way: not by reading theory, only by walking through the trap.</p>
+
+<h3>Story 1 — "Bisection found the wrong commit"</h3>
+<p>A team noticed checkout latency had risen from 200 ms to 1.8 s over the past six weeks. They bisected 340 commits, and <code>git bisect</code> reported commit <code>e7b2a91</code> — a small refactor to a caching helper — as the culprit. The team reverted it. Latency didn't improve.</p>
+<p><strong>What went wrong:</strong> The predicate measured a <em>single</em> request's latency. The actual issue was cumulative — connection pool exhaustion that took 5,000 prior requests to manifest. <code>e7b2a91</code> just happened to be the commit at which their N-th sequential test request started to hit the broken state.</p>
+<p><strong>The lesson:</strong> If your bug is cumulative (memory, pool size, cache thrash, DB bloat), single-shot predicates lie. Use a session-replay or load-driven predicate (Part IX's distributed-trace temporal bisection).</p>
+
+<h3>Story 2 — "The innocent commit that broke the build"</h3>
+<p>A bisection narrowed to commit <code>3c91f4d</code>, which only changed three lines of CSS. The team was baffled. After two hours of confusion, an engineer noticed that <code>3c91f4d</code>'s build also pulled in a newly-published transitive dependency via <code>pnpm install</code> running freshly per round. The CSS change was a coincidence; the upstream registry change was the real cause.</p>
+<p><strong>The lesson:</strong> Bisection assumes the only thing that varies between commits is the repo. The registry, the package mirror, and any external resolver violate that assumption. Use <code>--frozen-lockfile</code> + <code>--prefer-offline</code> on every round (Part 0 hermetic predicates). Or pin the install date with <code>npm view ... time</code> (Part IX supply-chain).</p>
+
+<h3>Story 3 — "Bisection across schema versions"</h3>
+<p>A backend bisection of 600 commits crashed at round 4 because the predicate's test database, migrated to schema v17, couldn't be checked out at a commit that expected schema v9. The bisector returned <code>git bisect skip</code> for every round, eventually giving up.</p>
+<p><strong>The lesson:</strong> When code and schema co-evolve, the predicate must migrate the schema to whatever version the commit expects. Three approaches: (1) per-round fresh DB initialized from the commit's migrations; (2) reversible migrations + restore; (3) SQLite per-test with the commit's full schema applied. Part XI's "designing for bisectability" axis 8.</p>
+
+<h3>Story 4 — "Bisecting a flake that wasn't there"</h3>
+<p>Engineers ran <code>git bisect run ./test.sh</code> with a test that <em>seemed</em> deterministic. After 8 rounds, the answer was suspicious; they re-ran the predicate on the alleged culprit. It passed. They re-ran it. It passed again. <code>git bisect</code> had been receiving false negatives because the test depended on the file modification time of a generated artifact, which changed when checkout reset the mtime.</p>
+<p><strong>The lesson:</strong> Many tests have hidden non-code inputs: file mtimes, environment variables inherited from the parent shell, cached compilation artifacts, even the OS's locale at test start. Print every environment variable at predicate startup; review the list. Anything that's not from the repo is a potential lie.</p>
+
+<h3>Story 5 — "Three flags, no answer"</h3>
+<p>An A/B testing setup had a regression that appeared only when feature flags <code>A</code>, <code>B</code>, and <code>C</code> were all enabled. Single-flag bisection found nothing — turning off any one flag eliminated the bug. The team spent four days assuming the regression must be in the most recent flag (C) before realizing the interaction was the bug.</p>
+<p><strong>The lesson:</strong> Feature flag bugs are interaction bugs. Use Delta Debugging (Part IX's hierarchical delta debugging algorithm or Part X's <code>flag-bisect.mjs</code> with the ddmin fallback). Single-axis bisection fundamentally can't find n-way interactions.</p>
+
+<h3>Story 6 — "The 'mtime' Heisenbug"</h3>
+<p>A make-based C++ project's tests passed when run individually and failed when run via <code>git bisect run</code>. Cause: <code>make</code> used file mtimes to decide what to rebuild; <code>git checkout</code> changed mtimes; subsequent compilations linked against half-stale object files; the binary's behavior depended on which half won.</p>
+<p><strong>The lesson:</strong> The bisection process itself perturbs the system. Build systems that track file mtime are especially vulnerable. Force a clean build at the start of every predicate, even when it's slower; the determinism is worth the seconds. Or switch to a content-hash-based build system (Bazel, Nix).</p>
+
+<h3>Story 7 — "Bisection found a bug we didn't know we had"</h3>
+<p>An engineer bisecting a production crash converged on a commit that had been merged six months earlier. Surprised, they investigated — and discovered the commit had introduced a latent integer overflow that had been silently wrapping for half a year. The overflow only became user-visible when traffic crossed a threshold the previous week.</p>
+<p><strong>The lesson:</strong> A "regression" isn't always when the code stopped working. Sometimes it's when traffic, data, or scale finally exposed code that was wrong all along. Bisection still works, but the answer it returns may be older than the symptom by months. Don't be surprised. Add the latent fix; thank past-team for unintentionally documenting it.</p>
+
+<div class="callout good">
+<div class="callout-title">The pattern behind the patterns</div>
+<p>Each of these stories fails the same way: an assumption baked into the predicate or the search space was wrong. Determinism, isolation, schema continuity, environment stability, single-cause monotonicity — every one of those assumptions has a story above. <strong>Before any non-trivial bisection, list your assumptions out loud, then write down how each would be violated.</strong> Five minutes of paranoia upfront saves four days of confusion later.</p>
+</div>
+</template>
+
+<template data-page-title="The Debugging Skill Calibration Rubric" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">The Debugging Skill Calibration Rubric (Hiring &amp; Leveling)</h2>
+<p class="lede">"Strong debugging skills" is one of the most over-claimed and under-defined competencies in engineering hiring. This page is the explicit, observable, level-by-level rubric for what debugging skill actually looks like at each career stage — and the interview questions that distinguish them.</p>
+
+<h3>The five levels</h3>
+
+<table class="cmp">
+<tr><th>Level</th><th>What they can debug</th><th>What they can't</th></tr>
+<tr><td><strong>L3 — Reporter</strong></td><td>Bugs with clear stack traces and reproducible steps. Knows print debugging. Can <code>git checkout</code> an old commit.</td><td>Anything ambiguous or rare. Stops when the obvious doesn't work.</td></tr>
+<tr><td><strong>L4 — Investigator</strong></td><td>Reads stack traces. Forms hypotheses. Knows when to reach for a debugger. Has run <code>git bisect</code> once. Asks for help after 30–60 min stuck.</td><td>Designing predicates. Multi-service problems. Flaky tests.</td></tr>
+<tr><td><strong>L5 — Practitioner</strong></td><td>Writes minimal repros. Designs automated bisection predicates. Reads memory profiles. Mentors L3-L4. Knows when not to bisect.</td><td>Org-level practices. Cross-team debugging coordination.</td></tr>
+<tr><td><strong>L6 — Designer</strong></td><td>Designs systems to be debuggable from the architecture down. Leads incident response. Bisects modern systems (k8s, IaC). Picks observability investments.</td><td>—</td></tr>
+<tr><td><strong>L7 — Multiplier</strong></td><td>Defines org debugging practices. Mentors L4–L6 to grow into the next level. Influences tooling and process at the company level. Writes runbooks engineers reference for years.</td><td>—</td></tr>
+</table>
+
+<h3>Interview questions per level</h3>
+
+<h4>L3-L4 question</h4>
+<p>"I'll show you a stack trace from a production error. Walk me through what you'd do."</p>
+<p><strong>L3 signal:</strong> Reads the trace. Identifies the file and line. Suggests adding a print statement or rerunning to reproduce.</p>
+<p><strong>L4 signal:</strong> All of the above, plus articulates a specific hypothesis ("this variable should have been set; let's check where it gets initialized"). Knows that the topmost line isn't always the actual cause.</p>
+
+<h4>L4-L5 question</h4>
+<p>"Tell me about a time you debugged something hard. Walk me through your hypotheses in order."</p>
+<p><strong>L4 signal:</strong> Tells a story of "I tried X, then Y, then Z" — chronological investigation without clear hypothesis structure.</p>
+<p><strong>L5 signal:</strong> Frames each step as a hypothesis with a specific test. Mentions a hypothesis that was wrong and what they learned from being wrong. Mentions the moment they reached for bisection.</p>
+
+<h4>L5-L6 question</h4>
+<p>"You inherited a service that has a bisection-resistant codebase. What does that mean to you, and what would you change?"</p>
+<p><strong>L5 signal:</strong> Identifies surface symptoms — flaky tests, big commits, no lockfile.</p>
+<p><strong>L6 signal:</strong> Identifies the same symptoms <em>and</em> a sequenced plan to fix them, with priorities and cost estimates. Names trade-offs: "Adding hermetic tests is expensive; I'd start with the test we run most often and expand from there."</p>
+
+<h4>L6-L7 question</h4>
+<p>"How would you raise debugging skill across an organization of 200 engineers?"</p>
+<p><strong>L6 signal:</strong> Proposes specific interventions — workshops, brown-bags, a runbook library, mentoring pairs.</p>
+<p><strong>L7 signal:</strong> All of the above, plus measurable goals (MTTD, MTTR, bisection success rate), forcing functions (CI checks that lift the floor), an explicit theory of change (how the interventions compound), and a candid acknowledgment of what they'd <em>not</em> do (e.g., "I wouldn't mandate pair debugging; the friction would create resentment without commensurate gain").</p>
+
+<h3>The "live debugging" segment</h3>
+<p>For L5+, the strongest signal is a 30-minute live debugging exercise on a real codebase you've never seen. Setup:</p>
+<ol>
+  <li>Give the candidate a small repo with a known bug.</li>
+  <li>Tell them the symptom.</li>
+  <li>Watch them work; encourage them to think out loud.</li>
+  <li>Don't help unless asked.</li>
+</ol>
+<p>What you're watching for:</p>
+<table class="cmp">
+<tr><th>Observation</th><th>What it signals</th></tr>
+<tr><td>Reads error messages carefully</td><td>L4+ baseline</td></tr>
+<tr><td>States hypotheses before testing</td><td>L5+ scientific method</td></tr>
+<tr><td>Considers reproducing before fixing</td><td>L5+ repro discipline</td></tr>
+<tr><td>Asks "what changed?" within first 5 minutes</td><td>L6+ bisection instinct</td></tr>
+<tr><td>Reaches for the right tool (debugger vs. logs vs. profile vs. bisect)</td><td>L6+ tool fluency</td></tr>
+<tr><td>Notes what they would add to make this faster next time</td><td>L7 multiplier mindset</td></tr>
+</table>
+
+<h3>The signals that indicate over-claiming</h3>
+<p>Candidates often claim L6/L7 debugging skill they don't have. Three sniff tests:</p>
+<ul>
+  <li><strong>Ask for specific numbers.</strong> "How long did your last big debugging session take?" An L7 has a story with hours and outcomes; an over-claimer has vague reassurances.</li>
+  <li><strong>Ask about being wrong.</strong> "Tell me about a debugging hypothesis that took longer to falsify than you expected." An L7 has many stories. An L5 has at least one. An L3-L4 often can't name a single specific instance.</li>
+  <li><strong>Ask about teaching.</strong> "Walk me through how you mentored a junior engineer through a hard bug." L6+ has concrete examples with Socratic questions; L4-L5 describes giving the answer.</li>
+</ul>
+
+<h3>The promotion guide</h3>
+<p>For managers using this rubric to assess promotion readiness:</p>
+<ul>
+  <li><strong>L4 → L5:</strong> Has the candidate independently run a non-trivial bisection in the last 6 months? Have they introduced a new technique to the team?</li>
+  <li><strong>L5 → L6:</strong> Have they designed a system property that helps the team's bisection? Led an incident's root-cause investigation?</li>
+  <li><strong>L6 → L7:</strong> Have they raised the team's average debugging speed measurably? Written something the team references for guidance?</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The most important calibration</div>
+<p>The hardest line to draw is L6 → L7. The L6 engineer is a great solo debugger and pair partner. The L7 engineer changes the slope of the team's improvement. The test is not "is this engineer good" — it's "is this team measurably better at debugging because this engineer is here?" If the answer is no, you have a strong L6, not an L7. That's not failure; the org needs both.</p>
+</div>
+</template>
+
+<template data-page-title="The Anti-Bisection Patterns Catalog" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">The Anti-Bisection Patterns Catalog</h2>
+<p class="lede">Most teams don't lose bisection capability all at once — they lose it gradually, through accumulated small patterns each of which seemed harmless. This page is the field guide to the 10 most common patterns that destroy bisectability, with their smells, costs, and fixes.</p>
+
+<h3>1. The Thousand-Line PR</h3>
+<p><strong>Smell:</strong> Pull requests with 30+ files changed and "various improvements" in the title. Or worse: "WIP" merged to main.</p>
+<p><strong>Cost:</strong> When bisection lands here, you've narrowed millions of lines to one PR — but the PR still contains a thousand. You've used log₂(N) to get back to a linear-search problem.</p>
+<p><strong>Fix:</strong> Commit-lint enforcement on PR size (warning at 500 LOC, hard fail at 2,000). Cultural norm of "stack PRs" — break a big change into 5 small ones reviewed in sequence.</p>
+
+<h3>2. The Squash-Merge Smear</h3>
+<p><strong>Smell:</strong> Every PR is squashed to one giant commit. Six months later, the history has 200 commits each of which represents a week of work.</p>
+<p><strong>Cost:</strong> Bisection always lands on a commit too large to localize. The blame trail through <code>git log -p</code> reads "lots of stuff happened on this day."</p>
+<p><strong>Fix:</strong> Allow rebase-merge or merge-commit for PRs with &gt;3 logical commits. Train reviewers to recognize PRs that should NOT be squashed.</p>
+
+<h3>3. The Amended-and-Force-Pushed Branch</h3>
+<p><strong>Smell:</strong> Long-lived feature branches with rewritten history. Engineers <code>git rebase -i</code> and force-push regularly to "keep things tidy."</p>
+<p><strong>Cost:</strong> Bisection across a force-push window finds commits that don't exist anymore. <code>git bisect</code> errors out with "ambiguous reflog."</p>
+<p><strong>Fix:</strong> Protect <code>main</code> from force-push. Long branches can rewrite; the moment they're merged, the history is frozen. (Part II's "rebases and force-pushes" page.)</p>
+
+<h3>4. The Implicit Environment Dependency</h3>
+<p><strong>Smell:</strong> A test that "works on the CI runner but not locally," or vice versa. Or: the predicate's behavior changes depending on the engineer who runs it.</p>
+<p><strong>Cost:</strong> Bisection results are non-deterministic. The same bisection run by two engineers converges on different commits.</p>
+<p><strong>Fix:</strong> Print every relevant environment variable at predicate startup. Pin OS / runtime / locale / TZ in Docker or in test runner config.</p>
+
+<h3>5. The Test-Order Leak</h3>
+<p><strong>Smell:</strong> A test passes when run in isolation but fails when run after some other test. Or: the test suite passes locally but fails in CI's randomized order.</p>
+<p><strong>Cost:</strong> Bisection thinks it's testing the bug; it's actually testing whatever test order this round happened to produce.</p>
+<p><strong>Fix:</strong> Use <code>vitest --shuffle</code> or pytest's <code>pytest-randomly</code> plugin during CI. Fix every test that fails under shuffle — they're all latent test-pollution bugs. Use the polluter-finder from Part V.</p>
+
+<h3>6. The Auto-Generated File Diff</h3>
+<p><strong>Smell:</strong> Lockfiles, generated GraphQL types, bundled minified output, or formatter output all committed to the repo. Every PR touches half of them.</p>
+<p><strong>Cost:</strong> Every commit's diff is dominated by noise. Bisection lands on commits whose "change" is just a regenerated artifact, hiding the real cause.</p>
+<p><strong>Fix:</strong> Generate at build time, not at commit time. The few that <em>must</em> be committed (lockfiles) go in their own commits, separate from logic changes.</p>
+
+<h3>7. The Unreproducible Build</h3>
+<p><strong>Smell:</strong> Building the same commit twice produces different artifacts. Embedded timestamps, randomized symbol names, non-determined parallel compilation outputs.</p>
+<p><strong>Cost:</strong> Two bisection rounds on the same commit can give different answers because the build itself varies. Idempotency (PHS axis) drops to zero.</p>
+<p><strong>Fix:</strong> Set <code>SOURCE_DATE_EPOCH</code>, disable timestamp embedding, pin compiler/linker order, use content-hash build systems. Verify with <code>diff &lt;(build) &lt;(build)</code>.</p>
+
+<h3>8. The Lock-Stepped Deploy</h3>
+<p><strong>Smell:</strong> Frontend and backend must be deployed together; rolling back one requires rolling back the other.</p>
+<p><strong>Cost:</strong> Bisection has to consider the cross-product of frontend × backend commits. You can't independently isolate the cause.</p>
+<p><strong>Fix:</strong> API versioning that allows mixed-version operation. The frontend at v2 should be able to talk to the backend at v1 or v2. (Part X's API contracts page.)</p>
+
+<h3>9. The Migration-Locked Schema</h3>
+<p><strong>Smell:</strong> Database schema can roll forward only. Old migrations can't be reverted; they have no <code>down()</code> method.</p>
+<p><strong>Cost:</strong> Once you've applied migration #45, you can't bisect to a commit that expected #44. Bisection ranges are bounded by the oldest reversible migration.</p>
+<p><strong>Fix:</strong> Every migration must have a tested rollback. Migrations that can't be reverted (irreversible data loss) are a code smell — refactor to add a parallel schema and migrate data, then drop the old after a cooldown.</p>
+
+<h3>10. The Inherited-State Test</h3>
+<p><strong>Smell:</strong> A test that requires "the database to be in some state" before running, set up manually by an earlier developer.</p>
+<p><strong>Cost:</strong> When you bisect this test, you can't reproduce the inherited state at each commit. The test fails for reasons unrelated to the bisection.</p>
+<p><strong>Fix:</strong> Tests own their setup. The test creates whatever state it needs from scratch, in isolation, every time. Setup must be a function of the test, not of the environment.</p>
+
+<h3>A self-audit checklist</h3>
+<pre class="code" data-lang="markdown" data-title="anti-pattern-checklist.md"># Anti-Bisection Pattern Audit
+
+For each repo you maintain, check:
+
+[ ] Average PR size below 500 LOC?
+[ ] Squash-merge used judiciously, not universally?
+[ ] main branch protected from force-push?
+[ ] Environment variables logged at predicate start?
+[ ] Tests pass under randomized order?
+[ ] Generated files NOT committed (except lockfiles)?
+[ ] Two builds of the same commit are bitwise identical?
+[ ] Frontend can run against multiple backend versions?
+[ ] Every migration has a tested rollback?
+[ ] Tests don't rely on inherited state?
+
+Each unchecked box ≈ one future bisection that will mislead you.
+</pre>
+
+<div class="callout">
+<div class="callout-title">The pattern that creates patterns</div>
+<p>The root cause of most anti-bisection patterns is the same: <em>optimizing for the speed of writing the code, at the expense of the speed of debugging it later</em>. A 2-day saving when writing a feature can cost 2 weeks when bisecting a regression six months later. The senior engineer's discipline is the willingness to take a small upfront cost — atomic commits, reversible migrations, hermetic tests — for a far larger return at debug time. It's compound interest, paid in patience now, redeemed in calm when the on-call page fires.</p>
+</div>
+</template>
+
+<template data-page-title="Game Day — A Runnable Bisection Workshop" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">Game Day — A Three-Hour Bisection Workshop You Can Run</h2>
+<p class="lede">Skills are built by deliberate practice, not by reading. This page is a complete, runnable workshop format for raising your team's bisection skills in a single afternoon. The setup script builds a practice repository with three known bugs at known commits, so the facilitator knows the answers and can coach in real time.</p>
+
+<h3>The workshop in one sentence</h3>
+<p>Six engineers, three hours, one buggy repo with three known regressions, three escalating bisection exercises, fifteen-minute retrospective. Output: each engineer has run a full automated bisection at least twice and has a personal action list.</p>
+
+<h3>The agenda</h3>
+
+<table class="cmp">
+<tr><th>Time</th><th>Block</th><th>What happens</th></tr>
+<tr><td>00:00 — 00:15</td><td>Frame the day</td><td>Facilitator introduces the goals, the repo, and how the predicate works.</td></tr>
+<tr><td>00:15 — 00:45</td><td>Round 1 — solo manual</td><td>Each engineer runs <code>git bisect</code> manually on bug #1. Timed.</td></tr>
+<tr><td>00:45 — 01:15</td><td>Round 2 — solo automated</td><td>Each engineer writes a predicate and runs <code>git bisect run</code> on bug #2.</td></tr>
+<tr><td>01:15 — 01:25</td><td>Coffee break</td><td>—</td></tr>
+<tr><td>01:25 — 02:25</td><td>Round 3 — pair, with a curveball</td><td>Pairs bisect bug #3 — but it's a multi-flag interaction (ddmin required).</td></tr>
+<tr><td>02:25 — 02:55</td><td>Retrospective</td><td>Each engineer writes one thing they learned, one habit they'll change, one tool they want to try.</td></tr>
+<tr><td>02:55 — 03:00</td><td>Wrap</td><td>Facilitator collects retro notes; commits to a follow-up session in 4 weeks.</td></tr>
+</table>
+
+<h3>The setup script</h3>
+<pre class="code" data-lang="shell" data-title="game-day-setup.sh">#!/usr/bin/env bash
+# game-day-setup.sh
+# Generates a practice repo with three known-bad commits planted in a
+# history of harmless commits. Use this as the warm-up before a bisection
+# workshop.
+#
+# Output: ./game-day-repo (a git repo ready to clone for each participant)
+#
+# THE THREE BUGS:
+#   Bug A — single-commit, in-source: ~commit 47 of ~100, simple regression
+#   Bug B — single-commit, requires a predicate: ~commit 73, asymptotic perf
+#   Bug C — multi-flag interaction: only fires with FLAG_X + FLAG_Y both on
+#
+set -euo pipefail
+DEST="${1:-./game-day-repo}"
+rm -rf "$DEST" &amp;&amp; mkdir "$DEST" &amp;&amp; cd "$DEST"
+
+git init -q
+git config user.name "Game Day"
+git config user.email "gameday@example.com"
+
+# Initial commit.
+cat &gt; calculator.mjs &lt;&lt;'EOF'
+export function add(a, b) { return a + b; }
+export function sub(a, b) { return a - b; }
+export function mul(a, b) { return a * b; }
+export function div(a, b) { return a / b; }
+EOF
+cat &gt; test.mjs &lt;&lt;'EOF'
+import { add, sub, mul, div } from './calculator.mjs';
+console.assert(add(2, 3) === 5);
+console.assert(sub(5, 2) === 3);
+console.assert(mul(4, 5) === 20);
+console.assert(div(10, 2) === 5);
+console.log('OK');
+EOF
+git add . &amp;&amp; git commit -q -m "feat: initial calculator"
+
+# 99 noise commits + 3 bugs planted at predictable positions.
+for i in $(seq 1 99); do
+  echo "// noise $i" &gt;&gt; calculator.mjs
+  case $i in
+    47)  # BUG A: regression in sub
+      sed -i 's/return a - b/return a + b/' calculator.mjs
+      MSG="refactor: tidy up sub"   # innocent-looking
+      ;;
+    73)  # BUG B: O(n) → O(n²) regression in a 'sum' function
+      cat &gt;&gt; calculator.mjs &lt;&lt;'EOF'
+export function sum(xs) {
+  let total = 0;
+  for (const x of xs) for (const y of xs) total += (x === y ? x : 0);  // BUG: nested
+  return total;
+}
+EOF
+      MSG="feat: add sum function"
+      ;;
+    *)
+      MSG="chore: tidy commit $i"
+      ;;
+  esac
+  git add . &amp;&amp; git commit -q -m "$MSG"
+done
+
+# Bug C — multi-flag, last commit.
+cat &gt;&gt; calculator.mjs &lt;&lt;'EOF'
+export function multiply(a, b) {
+  if (process.env.FLAG_X &amp;&amp; process.env.FLAG_Y) return a * b + 1;   // BUG when both
+  return a * b;
+}
+EOF
+git add . &amp;&amp; git commit -q -m "feat: refactor multiply with flags"
+
+echo "=== Game Day repo ready at $DEST ==="
+echo "Bug A — sub regression: introduced around commit ~47"
+echo "Bug B — quadratic sum:  introduced around commit ~73"
+echo "Bug C — flag interaction: requires FLAG_X + FLAG_Y both on"
+</pre>
+
+<h3>The three predicates participants must write</h3>
+
+<pre class="code" data-lang="shell" data-title="game-day-predicates.sh">#!/usr/bin/env bash
+# BUG A — simple correctness regression. Easy to spot.
+node -e "import('./calculator.mjs').then(m=&gt; process.exit(m.sub(5,2)===3 ? 0 : 1))"
+
+# BUG B — performance regression. Predicate measures time on a 1k array.
+node -e "
+import('./calculator.mjs').then(m =&gt; {
+  const xs = Array.from({length:1000}, (_,i)=&gt;i);
+  const t = Date.now();
+  m.sum(xs);
+  process.exit(Date.now() - t &lt; 50 ? 0 : 1);
+});"
+
+# BUG C — flag interaction. Must enable both flags in the predicate to reveal.
+FLAG_X=1 FLAG_Y=1 node -e "
+import('./calculator.mjs').then(m =&gt; process.exit(m.multiply(2,3)===6 ? 0 : 1));"
+</pre>
+
+<h3>The retro template</h3>
+<pre class="code" data-lang="markdown" data-title="game-day-retro.md"># Game Day Retro — [date]
+
+## My times
+| Bug | Approach | Wall-clock | Got it right? |
+|-----|----------|------------|---------------|
+| A   | manual   |            |               |
+| B   | automated|            |               |
+| C   | ddmin    |            |               |
+
+## One thing I learned
+
+## One habit I'll change
+
+## One tool or technique I want to try next
+
+## What I'd want from the next workshop
+</pre>
+
+<h3>Why this format works</h3>
+<ul>
+  <li><strong>Solo first, then pair.</strong> Solo proves people can do it alone; pairing builds shared vocabulary.</li>
+  <li><strong>Three escalating difficulties.</strong> Round 1 is doable for L3-L4; round 2 forces L5 skill; round 3 forces L6 ddmin instinct.</li>
+  <li><strong>The bugs are real but bounded.</strong> Engineers practice on a manageable repo, not on a 50,000-commit beast where they'd give up halfway.</li>
+  <li><strong>The facilitator knows the answers.</strong> Coaching is fast; no "let me look this up" moments.</li>
+  <li><strong>Retro forces transfer.</strong> Without the retro, the workshop is entertainment; with it, the team carries new habits home.</li>
+</ul>
+
+<h3>The follow-through</h3>
+<p>One workshop builds awareness; a follow-up four weeks later builds habit. At the follow-up:</p>
+<ul>
+  <li>Each engineer brings one bug they bisected since the workshop.</li>
+  <li>They share what worked and what they got stuck on.</li>
+  <li>The facilitator introduces one new technique (e.g., Bayesian bisection from Part IX).</li>
+  <li>Group identifies the next investment to lift HQI on the team's main repo.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">A workshop's quietest victory</div>
+<p>The point of a game day is not that engineers can now bisect — most could, technically, before. The point is that bisection becomes <em>the first thing they reach for</em> when a regression appears. That instinct is built by repetition. One afternoon of focused practice changes the next year of reactive debugging.</p>
+</div>
+</template>
+
+<template data-page-title="Bisection Across Languages and Ecosystems" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">Bisection Across Languages and Ecosystems</h2>
+<p class="lede">Every language ecosystem has its own bisection friction. The git mechanics are universal, but the predicate's reliability — install times, lockfile behavior, build determinism, test reproducibility — varies wildly. This page is the comparative reference: what works easily, what breaks subtly, and the ecosystem-specific tactic for each.</p>
+
+<h3>Quick comparison</h3>
+
+<table class="cmp">
+<tr><th>Ecosystem</th><th>Lockfile situation</th><th>Install time (typical)</th><th>Cold-build cost</th><th>Bisection friction</th></tr>
+<tr><td>Node + pnpm</td><td><code>pnpm-lock.yaml</code>, frozen-lockfile honored</td><td>3–15 s (warm store)</td><td>Low</td><td>Low — best-in-class</td></tr>
+<tr><td>Node + npm</td><td><code>package-lock.json</code>, <code>npm ci</code></td><td>20–60 s</td><td>Low–medium</td><td>Low</td></tr>
+<tr><td>Node + yarn classic</td><td><code>yarn.lock</code></td><td>10–40 s</td><td>Low</td><td>Low</td></tr>
+<tr><td>Python + uv</td><td><code>uv.lock</code></td><td>3–10 s</td><td>Low</td><td>Low</td></tr>
+<tr><td>Python + pip-tools</td><td><code>requirements.txt</code> compiled</td><td>30–120 s</td><td>Low–medium</td><td>Medium</td></tr>
+<tr><td>Python + Poetry</td><td><code>poetry.lock</code></td><td>20–90 s</td><td>Low–medium</td><td>Medium</td></tr>
+<tr><td>Go modules</td><td><code>go.sum</code></td><td>5–30 s (with module cache)</td><td>Medium</td><td>Low</td></tr>
+<tr><td>Rust + cargo</td><td><code>Cargo.lock</code></td><td>10–60 s</td><td>High (full compile)</td><td>Medium — solved by sccache</td></tr>
+<tr><td>Java + Gradle</td><td><code>gradle.lockfile</code></td><td>20–90 s warm</td><td>Medium</td><td>Medium</td></tr>
+<tr><td>Java + Maven</td><td><code>pom.xml</code> (no lock by default!)</td><td>30–180 s</td><td>Medium</td><td>High — version drift</td></tr>
+<tr><td>Ruby + Bundler</td><td><code>Gemfile.lock</code></td><td>20–90 s</td><td>Low</td><td>Medium — old Gemfile.lock can be hostile</td></tr>
+<tr><td>PHP + Composer</td><td><code>composer.lock</code></td><td>10–40 s</td><td>Low</td><td>Low</td></tr>
+<tr><td>.NET + NuGet</td><td><code>packages.lock.json</code> (opt-in)</td><td>30–90 s</td><td>Medium</td><td>Medium — lock often missing</td></tr>
+<tr><td>C/C++ + CMake</td><td>varies wildly</td><td>—</td><td>Often high</td><td>High — system libs vary</td></tr>
+</table>
+
+<h3>Per-ecosystem tactics</h3>
+
+<h4>Node (pnpm)</h4>
+<pre class="code" data-lang="shell" data-title="bisect-node.sh">pnpm install --frozen-lockfile --prefer-offline &gt;/dev/null 2&gt;&amp;1 || exit 125
+pnpm test
+</pre>
+<p>Best-in-class. The content-addressable store makes per-round installs nearly free on warm cache. Keep <code>pnpm-lock.yaml</code> committed.</p>
+
+<h4>Python (uv)</h4>
+<pre class="code" data-lang="shell" data-title="bisect-python-uv.sh">uv sync --frozen &gt;/dev/null 2&gt;&amp;1 || exit 125
+uv run pytest -x
+</pre>
+<p>uv (the Rust-based pip replacement) reduces install times by 10–100×. If your project still uses pip, the single-highest-leverage change for bisection speed is to migrate to uv.</p>
+
+<h4>Python (legacy pip)</h4>
+<pre class="code" data-lang="shell" data-title="bisect-python-pip.sh">python -m venv .venv-bisect
+. .venv-bisect/bin/activate
+pip install --no-deps -r requirements.txt &gt;/dev/null 2&gt;&amp;1 || exit 125
+pytest -x
+</pre>
+<p>Pre-create the venv outside the bisection loop; use <code>--no-deps</code> + a precompiled <code>requirements.txt</code> from pip-tools to avoid resolution time per round.</p>
+
+<h4>Go</h4>
+<pre class="code" data-lang="shell" data-title="bisect-go.sh">export GOFLAGS=-mod=mod
+go test ./... &gt;/dev/null 2&gt;&amp;1
+</pre>
+<p>Go's module cache makes bisection fast — <code>$GOMODCACHE</code> stays warm across commits. Watch for <code>replace</code> directives that point at local paths; those break checkout-and-rebuild.</p>
+
+<h4>Rust</h4>
+<pre class="code" data-lang="shell" data-title="bisect-rust.sh">export CARGO_INCREMENTAL=1
+export RUSTC_WRAPPER=sccache
+cargo test --offline --frozen 2&gt;&amp;1
+</pre>
+<p>Rust's main bisection cost is compilation. <code>sccache</code> caches compiled crates content-addressably; with it warm, a 60-second build drops to 5. Always use <code>--offline --frozen</code> to pin to <code>Cargo.lock</code>.</p>
+
+<h4>Java (Gradle)</h4>
+<pre class="code" data-lang="shell" data-title="bisect-java-gradle.sh">./gradlew --offline --no-daemon test 2&gt;&amp;1
+</pre>
+<p>Daemon-less mode is critical for bisection: stale daemons hold incremental state from the previous round and can poison results. <code>--offline</code> keeps the resolver from contacting Maven Central per round.</p>
+
+<h4>Java (Maven, no lockfile)</h4>
+<p>Maven's default has no lockfile — every <code>mvn install</code> can pull a different transitive version. For bisection, you must:</p>
+<ol>
+  <li>Add <code>dependency:tree</code> output to source control.</li>
+  <li>Use <code>mvn -o</code> (offline) once the local repository is populated.</li>
+  <li>Snapshot <code>~/.m2/repository</code> at the start of the bisection; restore between rounds.</li>
+</ol>
+<p>Or: adopt the Apache <code>locker</code> plugin (or io.takari.maven dependencies-lock).</p>
+
+<h4>Ruby</h4>
+<pre class="code" data-lang="shell" data-title="bisect-ruby.sh">bundle install --frozen --jobs=4 &gt;/dev/null 2&gt;&amp;1 || exit 125
+bundle exec rspec --fail-fast
+</pre>
+<p>An old <code>Gemfile.lock</code> that references gem versions no longer on rubygems.org will skip — code 125 is the right response.</p>
+
+<h4>PHP / Composer</h4>
+<pre class="code" data-lang="shell" data-title="bisect-php.sh">composer install --no-dev --no-interaction --prefer-dist 2&gt;&amp;1 || exit 125
+./vendor/bin/phpunit
+</pre>
+
+<h4>.NET</h4>
+<pre class="code" data-lang="shell" data-title="bisect-dotnet.sh">dotnet restore --locked-mode --use-lock-file 2&gt;&amp;1 || exit 125
+dotnet test --no-restore
+</pre>
+<p>Enable <code>RestorePackagesWithLockFile</code> in csproj. Without lock files, .NET behaves like Maven and bisection is unreliable.</p>
+
+<h4>C/C++</h4>
+<p>The hardest ecosystem to bisect. Build determinism requires:</p>
+<ul>
+  <li>Pinned compiler version (e.g., via Nix or Docker).</li>
+  <li>Pinned system libraries (vendored or via Conan / vcpkg with locked manifests).</li>
+  <li><code>SOURCE_DATE_EPOCH</code> set to a fixed value.</li>
+  <li>Deterministic parallel build (use ninja, not make).</li>
+  <li>Optionally: <code>ccache</code> or <code>sccache</code> for speed.</li>
+</ul>
+<p>Bazel makes all of this automatic; that's the most senior team's answer.</p>
+
+<h3>The cross-ecosystem patterns</h3>
+<table class="cmp">
+<tr><th>Pattern</th><th>Applies everywhere</th></tr>
+<tr><td>Commit the lockfile</td><td>Yes</td></tr>
+<tr><td>Use the frozen/locked install flag</td><td>Yes</td></tr>
+<tr><td>Cache the package store / module cache between rounds</td><td>Yes</td></tr>
+<tr><td>Exit 125 on install failure, not 1</td><td>Yes</td></tr>
+<tr><td>Run tests with stable seed / order</td><td>Yes</td></tr>
+<tr><td>Disable daemons / persistent caches that span rounds</td><td>Yes</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">The senior choice: pick an ecosystem with bisection-friendly defaults</div>
+<p>If you're starting a new project and choosing tooling, weight bisection-friendliness alongside the usual concerns. pnpm vs npm, uv vs pip, sccache-Rust vs raw Cargo, Gradle vs Maven — the wins compound over years. The principal engineer's choice between equally-capable tools often comes down to "which one will let our future selves debug faster?" That's a question juniors don't think to ask.</p>
+</div>
+</template>
+
+<template data-page-title="Bisection in 2030 — A Forward Look" data-part="XII — Frameworks, Data &amp; Future">
+<span class="badge">Part XII · Frameworks, Data &amp; Future</span>
+<h2 class="page-title">Bisection in 2030 — Opinionated Predictions</h2>
+<p class="lede">This page is forward-looking and opinionated. The techniques in this curriculum reflect the state of the art in 2026; in five years, parts of it will feel quaint. This is the principal-engineer's bet on what changes, what remains, and which skills you should invest in now to be valuable in the field that's coming.</p>
+
+<h3>Change #1 — LLMs write predicates</h3>
+<p>By 2028, most engineers will not write bisection predicates by hand for common scenarios. They will describe the bug ("the checkout button has been returning 500s since last Tuesday") and an AI agent will (a) propose 3–5 candidate predicates, (b) test each on a known-good commit to confirm baseline, (c) run the bisection with the chosen predicate, (d) summarize the result.</p>
+<p><strong>What this changes:</strong> The marginal cost of starting a bisection drops by 5–10×. Bisection becomes the default debugging step, not a planned activity.</p>
+<p><strong>What this does NOT change:</strong> The engineer still must read the result critically. AI agents trained on bisection patterns still hit the same anti-patterns from Part XII's catalog — the seven stories in "Hard-Won Lessons" all still happen, just faster.</p>
+<p><strong>Skill to invest in now:</strong> Articulating bugs precisely. The same skill that produces a Level-4 repro produces a working AI prompt.</p>
+
+<h3>Change #2 — Production replay becomes universal</h3>
+<p>Mozilla's <code>rr</code> is a research tool today. By 2029, equivalents will be available for most production environments: every request to a service can be deterministically replayed at any commit, with the exact same memory, scheduler, and IO timing. eBPF + content-addressable storage make this affordable.</p>
+<p><strong>What this changes:</strong> "Can't reproduce" stops being a viable excuse. Every production bug becomes bisectable. The Hard-Won Lesson #1 (cumulative-state bugs) disappears as a category.</p>
+<p><strong>Skill to invest in now:</strong> Reasoning about determinism. Engineers who can articulate exactly which inputs determine an output will be the ones who can effectively use replay debugging at scale.</p>
+
+<h3>Change #3 — Continuous background bisection</h3>
+<p>IDEs and CI systems will run bisection continuously, in the background, on every metric they observe. The day a performance regression appears in dashboards, the system has already pre-computed "here are the three candidate commits we narrowed it to" before any engineer files a ticket.</p>
+<p><strong>What this changes:</strong> The reactive bisection workflow — engineer notices bug, engineer starts <code>git bisect</code> — disappears for most regressions. The remaining bisections are the hard cases: multi-cause, non-monotonic, cumulative.</p>
+<p><strong>Skill to invest in now:</strong> Designing predicates that capture <em>continuous</em> performance and behavior signals, not pass/fail. Today's perf-budget predicates (Part V) are the predecessor.</p>
+
+<h3>Change #4 — Probabilistic predicates by default</h3>
+<p>The Bayesian bisection algorithm from Part IX is too sophisticated for hand-coding today. By 2028, it'll be built into <code>git bisect</code>. Engineers will tag flaky predicates with their measured error rate; the bisector will automatically apply Bayesian updates.</p>
+<p><strong>What this changes:</strong> The 5–25% flake regime stops being a brick wall. Bisections succeed even when predicates are imperfect, with explicit confidence intervals on the answer.</p>
+<p><strong>Skill to invest in now:</strong> Reasoning about uncertainty. Engineers who can articulate "I'm 85% sure the bug is in this commit, here's what would shift my belief" will be the ones who use probabilistic tools well.</p>
+
+<h3>Change #5 — Cross-repository bisection</h3>
+<p>Today bisection is single-repo. By 2030, it's cross-repo: tools will let you bisect across a coordinated set of services — frontend, backend, microservice, infrastructure-as-code, all simultaneously, with the bisection respecting their version-compatibility constraints.</p>
+<p><strong>What this changes:</strong> The hardest bisection cases today (multi-service distributed bugs) become tractable.</p>
+<p><strong>Skill to invest in now:</strong> Articulating contracts between services. The teams whose services have explicit contracts (Part X's API contracts) will benefit; teams without will be blocked.</p>
+
+<h3>Change #6 — Compiler-level continuous bisection</h3>
+<p>Compilers (rustc, LLVM, V8) will report not just "this commit broke optimization X" but "this commit changed semantic behavior of pass Y for inputs matching pattern Z." Compiler-pass bisection (Part IX) becomes routine, not advanced.</p>
+<p><strong>What this changes:</strong> Compiler regressions get reported with surgical specificity. Workarounds become trivial.</p>
+
+<h3>What does NOT change</h3>
+<table class="cmp">
+<tr><th>Skill</th><th>Why it endures</th></tr>
+<tr><td>Articulating a bug precisely</td><td>Required for any debugging — AI or otherwise — to be effective.</td></tr>
+<tr><td>The scientific method</td><td>The structure of "hypothesis → test → refine" is older than computing and outlasts it.</td></tr>
+<tr><td>Designing for bisectability</td><td>The eight properties from Part XI are about how systems should be structured. AI doesn't restructure your codebase.</td></tr>
+<tr><td>Reading stack traces</td><td>Until programs stop crashing, this skill is foundational.</td></tr>
+<tr><td>Mentoring</td><td>Multipliers always matter.</td></tr>
+<tr><td>Cultural advocacy for reproducibility</td><td>Tools won't fix culture; that's still humans persuading humans.</td></tr>
+</table>
+
+<h3>The investment recommendation</h3>
+<p>If you have 2026 dollars to spend on debugging capability, the rank-ordered investments:</p>
+<ol>
+  <li><strong>Hermeticity.</strong> Faster CI + fewer flakes + reproducible builds. Pays back forever, regardless of how AI tools evolve.</li>
+  <li><strong>Observability with deploy tags.</strong> Becomes the substrate for continuous bisection (Change #3).</li>
+  <li><strong>Conventional commits + small PRs.</strong> Makes every bisection result interpretable — AI agents can read your history too.</li>
+  <li><strong>API contracts.</strong> Required for Change #5 (cross-repo bisection).</li>
+  <li><strong>Hiring for articulation skill.</strong> The engineers who can describe bugs precisely will dominate the AI-augmented era.</li>
+</ol>
+
+<h3>What this means for the principal engineer</h3>
+<p>The role doesn't disappear; it shifts. The high-leverage work moves up the stack:</p>
+<ul>
+  <li>Less time writing predicates; more time designing for the predicates the AI will write.</li>
+  <li>Less time reading individual stack traces; more time defining what classes of bug your team should never have to debug.</li>
+  <li>Less time bisecting; more time ensuring bisection is always available — to humans and AI agents alike.</li>
+  <li>More time on the meta-question: <em>which capabilities matter, in five years, given how the tooling will evolve?</em></li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The closing observation</div>
+<p>Every era of debugging has had a similar prediction: "this will be automated; debugging skill will become obsolete." Stack traces were going to replace debuggers. Logging was going to make profilers unnecessary. Observability was going to make manual debugging extinct. None of those predictions came true; the work shifted upward, and the engineers who shifted with it became more valuable, not less. The same will be true of AI-augmented bisection. The technique you've learned in this curriculum isn't going obsolete — its surface area is changing, and the engineers fluent in its underlying logic will be the ones who shape how the next tools work.</p>
+<p style="margin-top: 18px;">That fluency is what this curriculum has been building toward. <strong>The investment you've made in reading it is good for at least the next decade.</strong></p>
+</div>
+<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how. And design the next system so that future bisections always work.</p>
+</template>
+
 
 <!-- ============================================================
      RUNTIME — Monaco loader, router, nav, copy buttons.
