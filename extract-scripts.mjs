@@ -118,10 +118,9 @@ const SPECIAL_PATH = {
 };
 
 // Pedagogical / illustrative code blocks in the curriculum that should NOT be
-// extracted to disk. These are inline examples in the "Build Orchestration
-// Layer" page — they exist to teach package.json patterns, not as artifacts.
-// The real package.json is committed at the repo root and maintained directly.
-const SKIP = new Set([
+// extracted to disk. These exist to teach patterns inside the curriculum HTML,
+// not as artifacts. The real package.json is committed at the repo root.
+const SKIP_NAMES = new Set([
   'package.json',
   'build-pipeline.txt',
   'reserved-scripts.txt',
@@ -134,7 +133,17 @@ const SKIP = new Set([
   'setup-husky.sh',
   '.github/workflows/ci.yml',
   'onboarding-60s.sh',
+  'workspaces.json',
+  'cheatsheet.sh',
 ]);
+// Anything matching one of these patterns is also illustrative-only.
+const SKIP_PATTERNS = [
+  /^day-\d+/,        // day-0.sh, day-15-final.json, etc.
+];
+function shouldSkip(title) {
+  if (SKIP_NAMES.has(title)) return true;
+  return SKIP_PATTERNS.some(re => re.test(title));
+}
 
 function decodeEntities(s) {
   return s
@@ -157,7 +166,7 @@ while ((m = re.exec(html)) !== null) {
   const [, lang, title, rawBody] = m;
   const body = decodeEntities(rawBody).replace(/^\n/, '').replace(/\s+$/, '') + '\n';
 
-  if (SKIP.has(title)) continue;
+  if (shouldSkip(title)) continue;
 
   let target;
   if (SPECIAL_PATH[title]) {

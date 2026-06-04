@@ -4067,6 +4067,591 @@ sed -n "${lo}p" "$SESSION"
 </div>
 </template>
 
+<template data-page-title="Building package.json from npm init to Production" data-part="IX — Advanced &amp; Theoretical">
+<span class="badge">Part IX · Advanced &amp; Theoretical</span>
+<h2 class="page-title">Building package.json — From <code>npm init</code> to Production, Day by Day</h2>
+<p class="lede">You're starting a new app. Open a terminal in an empty directory. What do you actually type, in what order, and when do you add each script? This page is the answer — every step from <code>npm init -y</code> to a fully wired, CI-integrated, husky-protected production project, with the <em>diff to <code>package.json</code> after each step</em>. No skipped middle steps, no "and then you have a working build system." Just the literal sequence.</p>
+
+<h3>Day 0 — The empty directory</h3>
+<pre class="code" data-lang="shell" data-title="day-0.sh">mkdir my-app &amp;&amp; cd my-app
+git init
+echo "node_modules" &gt; .gitignore
+ls -la
+# .  ..  .git/  .gitignore
+</pre>
+<p>No <code>package.json</code> yet. No <code>node_modules/</code>. Don't reach for a framework template — you'll learn more by building up from zero, and the resulting <code>package.json</code> will contain only what you actually understand.</p>
+
+<h3>Day 1 — <code>npm init</code></h3>
+
+<pre class="code" data-lang="shell" data-title="day-1.sh"># Interactive (asks you questions):
+npm init
+
+# Or accept all defaults (fast, then edit):
+npm init -y
+</pre>
+
+<p>Result — your first <code>package.json</code>:</p>
+
+<pre class="code" data-lang="json" data-title="day-1-package.json">{
+  "name": "my-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" &amp;&amp; exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+</pre>
+
+<p>That's the default. Now edit it — three changes you should make <em>right now</em> for any non-trivial project:</p>
+
+<pre class="code" data-lang="json" data-title="day-1-edited.json">{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "&gt;=20" },
+  "description": "A clear one-liner about what this app does.",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" &amp;&amp; exit 1"
+  },
+  "license": "UNLICENSED"
+}
+</pre>
+
+<table class="cmp">
+<tr><th>Field</th><th>Why</th></tr>
+<tr><td><code>"private": true</code></td><td>Refuses <code>npm publish</code> outright. Prevents accidentally leaking your app to the public registry. Required for SaaS apps.</td></tr>
+<tr><td><code>"type": "module"</code></td><td>Makes <code>.js</code> files default to ESM (<code>import</code>/<code>export</code>). Without this, you're stuck in CommonJS land or renaming everything to <code>.mjs</code>.</td></tr>
+<tr><td><code>"engines.node"</code></td><td>Declares the Node version. Pair with a <code>.nvmrc</code> file (just contains <code>20</code>) so <code>nvm use</code> sets the right version automatically.</td></tr>
+<tr><td>Start version at <code>0.1.0</code></td><td>Semver convention: pre-1.0 means "API may break." Starting at 1.0.0 is a commitment most apps shouldn't make on day one.</td></tr>
+<tr><td>Remove <code>"main": "index.js"</code></td><td>Only relevant for libraries. For apps, irrelevant noise.</td></tr>
+</table>
+
+<p>Then commit:</p>
+
+<pre class="code" data-lang="shell" data-title="day-1-commit.sh">git add package.json .gitignore
+git commit -m "Initial package.json"
+</pre>
+
+<h3>Day 2 — Installing your first runtime dependency</h3>
+
+<pre class="code" data-lang="shell" data-title="day-2.sh">npm install express
+</pre>
+
+<p>What just happened:</p>
+<ol>
+  <li>npm resolved the latest version of <code>express</code> (say, <code>4.19.2</code>).</li>
+  <li>It downloaded it (and 60+ transitive deps) into <code>node_modules/</code>.</li>
+  <li>It wrote two files: updated <code>package.json</code> and a new <code>package-lock.json</code>.</li>
+</ol>
+
+<p>Your <code>package.json</code> grew:</p>
+
+<pre class="code" data-lang="json" data-title="day-2-diff.json">{
+  "name": "my-app",
+  "version": "0.1.0",
++ "dependencies": {
++   "express": "^4.19.2"
++ }
+}
+</pre>
+
+<p>The <code>^4.19.2</code> is a <strong>semver range</strong>, not an exact version. Three flavors:</p>
+
+<table class="cmp">
+<tr><th>Range</th><th>Means</th><th>Use when</th></tr>
+<tr><td><code>^4.19.2</code> (caret)</td><td>Compatible with 4.19.2: <code>&gt;=4.19.2 &lt;5.0.0</code></td><td>Default. You trust the package's semver discipline.</td></tr>
+<tr><td><code>~4.19.2</code> (tilde)</td><td>Patch-only: <code>&gt;=4.19.2 &lt;4.20.0</code></td><td>You only want bugfixes, not new features.</td></tr>
+<tr><td><code>4.19.2</code> (exact)</td><td>Exactly 4.19.2</td><td>You distrust the package's stability, or pinning is policy.</td></tr>
+<tr><td><code>"latest"</code> or <code>"*"</code></td><td>Whatever's newest</td><td><strong>Never.</strong> This is a footgun loaded with both barrels.</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">Always commit <code>package-lock.json</code></div>
+<p>The lockfile pins exact versions of every transitive dependency. Without it, two developers running <code>npm install</code> a week apart get different code. With it, builds are reproducible. <strong>If you ever see a <code>.gitignore</code> entry for <code>package-lock.json</code>, treat it as a bug.</strong></p>
+</div>
+
+<h3>Day 3 — Adding your first script: <code>start</code></h3>
+
+<p>Three ways to add a script. They're equivalent; pick one.</p>
+
+<pre class="code" data-lang="shell" data-title="day-3-three-ways.sh"># 1) Edit package.json directly (most common, most readable).
+$EDITOR package.json
+# Then add to "scripts": { "start": "node server.js" }
+
+# 2) npm pkg set (modern, scriptable, npm 7+).
+npm pkg set scripts.start="node server.js"
+
+# 3) npm set-script (deprecated; npm pkg set replaces it).
+npm set-script start "node server.js"   # ← don't use
+</pre>
+
+<p>Use option 1 for most edits — being able to read the file is more important than scripting it. Use option 2 when writing setup scripts (CI bootstrap, scaffolding) that need to programmatically add a script. The whole <code>npm pkg</code> family is underrated:</p>
+
+<pre class="code" data-lang="shell" data-title="day-3-npm-pkg.sh">npm pkg get name version                            # read fields
+npm pkg get scripts                                  # read whole scripts object
+npm pkg set scripts.start="node server.js"          # set a script
+npm pkg set scripts.dev="node --watch server.js"    # set another
+npm pkg delete scripts.test                          # remove a script
+npm pkg set engines.node="&gt;=20"                     # set nested field
+npm pkg set "repository.url=git+https://github.com/me/my-app.git"
+</pre>
+
+<p>After Day 3 your <code>package.json</code>:</p>
+
+<pre class="code" data-lang="json" data-title="day-3-package.json">{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "&gt;=20" },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
+</pre>
+
+<p>Test it:</p>
+<pre class="code" data-lang="shell" data-title="day-3-test.sh">npm start         # works WITHOUT "run" — start is a reserved name
+npm run start     # also works
+</pre>
+
+<h3>Day 4 — devDependencies</h3>
+
+<p>You want to add tests. Vitest is a dev tool — the production server doesn't need it. Install it with <code>-D</code>:</p>
+
+<pre class="code" data-lang="shell" data-title="day-4.sh">npm install -D vitest
+# Equivalent: npm install --save-dev vitest
+</pre>
+
+<pre class="code" data-lang="json" data-title="day-4-diff.json">{
+  "dependencies": { "express": "^4.19.2" },
++ "devDependencies": {
++   "vitest": "^1.6.0"
++ }
+}
+</pre>
+
+<p>Why the distinction matters:</p>
+<table class="cmp">
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td><code>npm install</code> in dev</td><td>Installs <em>both</em> <code>dependencies</code> and <code>devDependencies</code>.</td></tr>
+<tr><td><code>npm install --production</code> or <code>NODE_ENV=production npm install</code></td><td>Installs ONLY <code>dependencies</code>. Smaller image, smaller attack surface, faster startup.</td></tr>
+<tr><td><code>npm ci --omit=dev</code></td><td>Modern equivalent. Same idea: skip dev deps in production builds.</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">The "is it on the production server's disk?" test</div>
+<p>If the package is needed at runtime — request handling, DB driver, template engine — it's a <code>dependency</code>. If it only runs during development or build — test runner, linter, bundler, type checker — it's a <code>devDependency</code>. The cost of getting this wrong: a 200 MB production Docker image when 80 MB would do.</p>
+</div>
+
+<h3>Day 5 — Wire <code>test</code></h3>
+
+<pre class="code" data-lang="shell" data-title="day-5.sh">npm pkg set scripts.test="vitest run"
+# For local watch mode, add a separate script:
+npm pkg set scripts.test:watch="vitest"
+</pre>
+
+<pre class="code" data-lang="json" data-title="day-5-package.json">{
+  "scripts": {
+    "start":      "node server.js",
+    "test":       "vitest run",
+    "test:watch": "vitest"
+  }
+}
+</pre>
+
+<p>Now <code>npm test</code> works (no <code>run</code> needed — <code>test</code> is reserved). Use <code>:</code> as a namespacing convention for related scripts — <code>test:watch</code>, <code>test:ui</code>, <code>test:coverage</code> all read as variants of <code>test</code>.</p>
+
+<div class="callout">
+<div class="callout-title">Why <code>vitest run</code> not just <code>vitest</code></div>
+<p>Bare <code>vitest</code> opens watch mode and never exits. In CI, that hangs forever. Always use <code>vitest run</code> for the <code>test</code> script that's meant to exit; reserve bare <code>vitest</code> for the <code>test:watch</code> variant.</p>
+</div>
+
+<h3>Day 6 — Lint</h3>
+
+<pre class="code" data-lang="shell" data-title="day-6.sh">npm install -D eslint @eslint/js
+npx eslint --init    # interactive scaffold of eslint.config.js
+npm pkg set scripts.lint="eslint ."
+npm pkg set scripts.lint:fix="eslint . --fix"
+</pre>
+
+<pre class="code" data-lang="json" data-title="day-6-scripts.json">{
+  "scripts": {
+    "start":      "node server.js",
+    "test":       "vitest run",
+    "test:watch": "vitest",
+    "lint":       "eslint .",
+    "lint:fix":   "eslint . --fix"
+  }
+}
+</pre>
+
+<p>The <code>:fix</code> sub-script is the conventional way to expose "also auto-fix what you can." Reserve plain <code>lint</code> for the <em>read-only</em> check that CI runs.</p>
+
+<h3>Day 7 — Format</h3>
+
+<pre class="code" data-lang="shell" data-title="day-7.sh">npm install -D prettier eslint-config-prettier
+npm pkg set scripts.format="prettier --write ."
+npm pkg set scripts.format:check="prettier --check ."
+</pre>
+
+<p>Two scripts, mirroring the lint pattern:</p>
+<ul>
+  <li><code>format</code> — mutates files. Run locally.</li>
+  <li><code>format:check</code> — read-only verification. Run in CI.</li>
+</ul>
+
+<p>Add <code>"prettier"</code> to your ESLint config's <code>extends</code> array (that's what <code>eslint-config-prettier</code> is for — it disables ESLint rules that conflict with Prettier).</p>
+
+<h3>Day 8 — Build (TypeScript / bundler)</h3>
+
+<p>Pick your bundler. For a Node server: <code>tsc</code> or <code>tsup</code>. For a frontend: <code>vite</code>, <code>esbuild</code>, or <code>webpack</code>. Mechanics are identical:</p>
+
+<pre class="code" data-lang="shell" data-title="day-8-typescript.sh"># Pure TypeScript output:
+npm install -D typescript @types/node
+npx tsc --init
+npm pkg set scripts.build="tsc"
+
+# Or a bundler-based pipeline:
+npm install -D vite
+npm pkg set scripts.build="vite build"
+npm pkg set scripts.dev="vite"
+</pre>
+
+<p>Add the build output to <code>.gitignore</code>:</p>
+
+<pre class="code" data-lang="text" data-title="day-8-gitignore.txt">node_modules
+dist
+.env
+.env.local
+*.log
+</pre>
+
+<h3>Day 9 — Composing scripts with pre/post hooks</h3>
+
+<p>You want <code>npm run build</code> to always clean the previous output first. Three ways. Pick the most readable:</p>
+
+<pre class="code" data-lang="json" data-title="day-9-composition.json">{
+  "scripts": {
+    "//-- option A: explicit &amp;&amp; chain --": "",
+    "build": "rm -rf dist &amp;&amp; tsc",
+
+    "//-- option B: pre/post hooks (recommended) --": "",
+    "prebuild": "rm -rf dist",
+    "build":    "tsc",
+
+    "//-- option C: a separate 'clean' script --": "",
+    "clean":    "rm -rf dist",
+    "build":    "npm run clean &amp;&amp; tsc"
+  }
+}
+</pre>
+
+<p><strong>Option B wins</strong> when the "before" step is conceptually <em>part of</em> the build — you'd never run build without cleaning. <strong>Option C wins</strong> when <code>clean</code> is also useful on its own (and yes, the JSON above has fake <code>//</code> keys for illustration — npm allows arbitrary keys, but real package.json shouldn't ship with them; use them only in examples).</p>
+
+<p>The pattern generalizes:</p>
+
+<pre class="code" data-lang="json" data-title="day-9-lifecycle.json">{
+  "scripts": {
+    "prebuild":         "rm -rf dist",
+    "build":            "tsc",
+    "postbuild":        "node scripts/copy-static.mjs",
+
+    "prepublishOnly":   "npm test &amp;&amp; npm run build",
+    "preversion":       "npm test",
+    "version":          "npm run build &amp;&amp; git add -A dist",
+    "postversion":      "git push &amp;&amp; git push --tags"
+  }
+}
+</pre>
+
+<h3>Day 10 — The <code>dev</code> script + concurrent watchers</h3>
+
+<p>For a server + client setup, you want both watchers running in parallel:</p>
+
+<pre class="code" data-lang="shell" data-title="day-10.sh">npm install -D npm-run-all
+npm pkg set scripts.dev="run-p dev:server dev:client"
+npm pkg set scripts.dev:server="node --watch server.js"
+npm pkg set scripts.dev:client="vite"
+</pre>
+
+<pre class="code" data-lang="json" data-title="day-10-scripts.json">{
+  "scripts": {
+    "dev":        "run-p dev:server dev:client",
+    "dev:server": "node --watch server.js",
+    "dev:client": "vite"
+  }
+}
+</pre>
+
+<p><code>run-p</code> (parallel) and <code>run-s</code> (serial) come from <code>npm-run-all</code>. Cross-platform alternative to bash's <code>&amp;</code>. The colon-namespacing keeps the variants grouped visually.</p>
+
+<h3>Day 11 — Pre-commit hooks with husky + lint-staged</h3>
+
+<pre class="code" data-lang="shell" data-title="day-11.sh">npm install -D husky lint-staged
+npx husky init                              # creates .husky/pre-commit
+echo "npx lint-staged" &gt; .husky/pre-commit  # replace default with lint-staged
+</pre>
+
+<p>Wire <code>lint-staged</code> in <code>package.json</code>:</p>
+
+<pre class="code" data-lang="json" data-title="day-11-lintstaged.json">{
+  "scripts": {
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx}": ["eslint --fix", "prettier --write"],
+    "*.{json,md,css,yml,yaml}": ["prettier --write"]
+  }
+}
+</pre>
+
+<p>The <code>prepare</code> script is npm's install-time lifecycle hook — running <code>npm install</code> on a clone triggers <code>husky</code>, which initializes <code>.git/hooks/</code>. New contributors get pre-commit hooks automatically, no separate setup step.</p>
+
+<h3>Day 12 — CI integration</h3>
+
+<p>Now all complexity is in <code>package.json</code>. The CI YAML stays thin:</p>
+
+<pre class="code" data-lang="yaml" data-title="day-12-ci.yml">name: ci
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'                  # caches ~/.npm between runs
+      - run: npm ci                     # NOT npm install
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+</pre>
+
+<div class="callout">
+<div class="callout-title"><code>npm ci</code> vs <code>npm install</code></div>
+<table class="cmp">
+<tr><th><code>npm install</code></th><th><code>npm ci</code></th></tr>
+<tr><td>Reads <code>package.json</code>, may update <code>package-lock.json</code></td><td>Reads <code>package-lock.json</code>, refuses to proceed if it disagrees with <code>package.json</code></td></tr>
+<tr><td>Reuses existing <code>node_modules/</code></td><td>Wipes <code>node_modules/</code> and reinstalls clean</td></tr>
+<tr><td>Faster on warm cache</td><td>Slower but deterministic; same result every time</td></tr>
+<tr><td>Use locally</td><td><strong>Use in CI. Always.</strong></td></tr>
+</table>
+</div>
+
+<h3>Day 13 — Versioning</h3>
+
+<p>npm has built-in versioning that follows semver and produces a tagged git commit:</p>
+
+<pre class="code" data-lang="shell" data-title="day-13.sh">npm version patch        # 0.1.0 → 0.1.1
+npm version minor        # 0.1.0 → 0.2.0
+npm version major        # 0.1.0 → 1.0.0
+npm version premajor --preid=alpha   # 0.1.0 → 1.0.0-alpha.0
+
+# Each runs: preversion → bump version → version → git commit + tag → postversion
+# Hook these to enforce quality:
+npm pkg set scripts.preversion="npm test"
+npm pkg set scripts.postversion="git push &amp;&amp; git push --tags"
+</pre>
+
+<p>For monorepos, graduate to <a href="https://github.com/changesets/changesets" target="_blank" rel="noopener">Changesets</a> — it tracks per-package version intent across PRs and bumps them all on release.</p>
+
+<h3>Day 14 — Publishing (skip if private)</h3>
+
+<p>If your app stays <code>private: true</code> (a SaaS), you'll never <code>npm publish</code>. If you're shipping a library:</p>
+
+<pre class="code" data-lang="shell" data-title="day-14.sh">npm pkg delete private                  # un-private the package
+npm pkg set publishConfig.access="public"
+npm pkg set files='["dist","README.md","LICENSE"]' --json
+npm pkg set scripts.prepublishOnly="npm test &amp;&amp; npm run build"
+
+npm publish --dry-run     # see exactly what would ship, without shipping
+npm publish               # do it for real
+</pre>
+
+<p>The <code>"files"</code> array is the <em>allowlist</em> of what ends up in the tarball. Without it, you can accidentally publish <code>.env</code> files, test fixtures, or your source <code>.ts</code> alongside compiled <code>.js</code>. <strong>Always set <code>"files"</code> explicitly for published packages.</strong></p>
+
+<p>The <code>prepublishOnly</code> hook is your last-line gate: it runs only on <code>npm publish</code> (not on <code>npm install</code>) and aborts the publish if tests fail or the build breaks.</p>
+
+<h3>Day 15 — Auditing &amp; updating</h3>
+
+<pre class="code" data-lang="shell" data-title="day-15.sh">npm outdated                # list deps with newer versions available
+npm audit                   # list known vulnerabilities
+npm audit fix               # auto-update vulnerable deps within semver range
+npm audit fix --force       # ⚠️ may bump major versions, breaking your build
+
+npm update                  # update within the semver ranges in package.json
+npm update express          # update one package
+
+# To bump a package PAST its semver range:
+npm install express@latest
+</pre>
+
+<p>For long-term maintenance, automate this with Dependabot (GitHub-native, free) or Renovate (more configurable). Both open PRs proposing dependency updates; your CI runs against the PR and tells you whether to merge.</p>
+
+<h3>The final, production-ready package.json</h3>
+
+<p>15 days in, this is your file. Annotated to show the role of each section:</p>
+
+<pre class="code" data-lang="json" data-title="day-15-final.json">{
+  "name": "my-app",
+  "version": "0.3.7",
+  "private": true,
+  "type": "module",
+  "description": "What this app does, in one line.",
+  "engines": { "node": "&gt;=20" },
+
+  "scripts": {
+    "dev":          "run-p dev:server dev:client",
+    "dev:server":   "node --watch server.js",
+    "dev:client":   "vite",
+
+    "prebuild":     "rm -rf dist",
+    "build":        "tsc &amp;&amp; vite build",
+
+    "test":         "vitest run",
+    "test:watch":   "vitest",
+    "test:coverage":"vitest run --coverage",
+
+    "lint":         "eslint .",
+    "lint:fix":     "eslint . --fix",
+
+    "format":       "prettier --write .",
+    "format:check": "prettier --check .",
+
+    "check":        "npm run lint &amp;&amp; npm run format:check &amp;&amp; npm test &amp;&amp; npm run build",
+
+    "preversion":   "npm test",
+    "postversion":  "git push &amp;&amp; git push --tags",
+
+    "prepare":      "husky",
+    "start":        "node dist/server.js"
+  },
+
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx}":            ["eslint --fix", "prettier --write"],
+    "*.{json,md,css,yml,yaml}":     ["prettier --write"]
+  },
+
+  "dependencies": {
+    "express":  "^4.19.2"
+  },
+
+  "devDependencies": {
+    "@types/node":              "^20.12.7",
+    "eslint":                   "^9.2.0",
+    "eslint-config-prettier":   "^9.1.0",
+    "husky":                    "^9.0.11",
+    "lint-staged":              "^15.2.2",
+    "npm-run-all":              "^4.1.5",
+    "prettier":                 "^3.2.5",
+    "typescript":               "^5.4.5",
+    "vite":                     "^5.2.10",
+    "vitest":                   "^1.6.0"
+  }
+}
+</pre>
+
+<h3>The decisions you'll re-make on every project</h3>
+
+<h4>Where does each new dep go?</h4>
+<table class="cmp">
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>"Will production runtime <code>require()</code> this?"</td><td><code>dependencies</code></td></tr>
+<tr><td>"Will <code>npm run build</code> use it but not the runtime?"</td><td><code>devDependencies</code></td></tr>
+<tr><td>"Will <code>npm test</code>, <code>lint</code>, or <code>format</code> use it?"</td><td><code>devDependencies</code></td></tr>
+<tr><td>"Is this a library that expects the host app to provide React/Vue/etc.?"</td><td><code>peerDependencies</code></td></tr>
+<tr><td>"Do I want this only on certain Node versions or OSes?"</td><td><code>optionalDependencies</code></td></tr>
+</table>
+
+<h4>When do I split into a workspace / monorepo?</h4>
+<p>When two parts of your codebase have <em>different deploy boundaries</em> — a server and an SDK, a marketing site and an app, multiple services. Until then, one <code>package.json</code> at the root is correct. Premature workspaces are the most common over-engineering pattern in modern Node.</p>
+
+<p>When you do need workspaces:</p>
+
+<pre class="code" data-lang="json" data-title="workspaces.json">{
+  "name": "my-monorepo",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build":  "npm run build --workspaces --if-present",
+    "test":   "npm test --workspaces --if-present",
+    "lint":   "npm run lint --workspaces --if-present"
+  }
+}
+</pre>
+
+<p>Each subdirectory in <code>packages/</code> and <code>apps/</code> gets its own <code>package.json</code>; the root coordinates. <code>--if-present</code> means "skip workspaces that don't define this script" — important because not every package needs every script.</p>
+
+<h3>Anti-patterns to avoid from day 1</h3>
+<div class="callout bad">
+<div class="callout-title">Avoid</div>
+<ul>
+  <li><strong><code>"dependencies"</code> with a hundred packages.</strong> Audit: do half of them actually run in production, or did they leak from <code>devDependencies</code>? Re-classify before they cost you image size.</li>
+  <li><strong>Mixed package managers.</strong> Pick one (<code>npm</code>, <code>pnpm</code>, or <code>yarn</code>) and stick with it. Mixed teams produce inconsistent lockfiles and broken caches.</li>
+  <li><strong>Scripts that <code>cd</code> elsewhere.</strong> npm runs scripts from the package root by default. A script that does <code>cd subdir && build</code> works locally but breaks in subtle ways under workspaces and CI matrix jobs.</li>
+  <li><strong>Hardcoded paths.</strong> <code>"start": "/usr/local/bin/node server.js"</code> works only on your laptop. Just <code>node</code> — npm adds the correct Node to PATH.</li>
+  <li><strong>"scripts" full of one-off commands.</strong> If a script was used once and never again, delete it. <code>package.json</code> is the contract surface; it should describe what the project <em>does</em>, not what you once did.</li>
+  <li><strong>Forgetting to update <code>engines.node</code> when you start using new APIs.</strong> The day you write <code>await fs.glob()</code>, bump <code>engines.node</code> to 22.</li>
+</ul>
+</div>
+
+<h3>The mechanics cheatsheet</h3>
+
+<pre class="code" data-lang="shell" data-title="cheatsheet.sh"># Initialize
+npm init -y
+
+# Install
+npm install pkg                # → dependencies
+npm install -D pkg             # → devDependencies
+npm install -E pkg             # → exact version (no caret/tilde)
+npm install pkg@1.2.3          # specific version
+npm install pkg@latest         # bump past semver range
+npm install ./local-folder     # local package
+npm install github:owner/repo  # straight from GitHub
+
+# Uninstall
+npm uninstall pkg              # removes from package.json + node_modules
+
+# Inspect / modify package.json without editing JSON
+npm pkg get scripts
+npm pkg set scripts.foo="bar"
+npm pkg delete scripts.foo
+
+# Update
+npm outdated                   # what's behind?
+npm update                     # update within semver ranges
+npm audit                      # security check
+npm audit fix                  # auto-remediate
+
+# Run scripts
+npm start                      # ≡ npm run start (reserved)
+npm test                       # ≡ npm run test (reserved)
+npm run &lt;name&gt;                  # any other script
+npm run &lt;name&gt; -- --extra-flag  # forward flags
+
+# CI
+npm ci                         # reproducible install from lockfile
+npm ci --omit=dev              # production deps only
+</pre>
+
+<h3>The principle</h3>
+<div class="callout good">
+<div class="callout-title">L7 mindset</div>
+<p>Every line in <code>package.json</code> was added <em>deliberately</em>, in response to a need that emerged from the work. Nothing is there because a generator put it there; nothing is there because "every project has this." The file reads, top to bottom, like a chronological summary of decisions: "here are my deps, here are my dev deps, here are the operations a human or CI runner can perform on this project, here is how publishing works." That clarity is the entire deliverable.</p>
+</div>
+</template>
+
 <template data-page-title="The Build Orchestration Layer — package.json" data-part="IX — Advanced &amp; Theoretical">
 <span class="badge">Part IX · Advanced &amp; Theoretical</span>
 <h2 class="page-title">The Build Orchestration Layer — package.json as DSL</h2>
