@@ -331,6 +331,9 @@ const SKIP_NAMES = new Set([
   // Part XIV — illustrative diagrams (not extracted)
   'when-which-tool.txt',
   'ai-bisect-workflow.txt',
+
+  // Part XII — illustrative regex from incident report
+  'the-regex.txt',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [
