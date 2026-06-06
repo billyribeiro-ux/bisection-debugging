@@ -1,8 +1,10 @@
 # Bisection Debugging — Principal Engineer's Curriculum
 
-A **76-page curriculum** designed to take someone from "I've never coded
+A **91-page curriculum** designed to take someone from "I've never coded
 before" to the full L7+ principal-engineer mental model — including the
-hands-on craft of writing bisection predicates from scratch. Starts with
+hands-on craft of writing bisection predicates from scratch, with
+companion tools (pickaxe + git log -L), a practical 2026 AI-augmented
+bisection guide, a glossary, and a recipe index for fast lookup. Starts with
 the terminal and binary search, builds through git bisect, advanced bisection
 (Shannon-information-theoretic lower bound, Bayesian bisection under noise,
 hierarchical delta debugging, compiler-pass bisection, supply-chain time
@@ -137,6 +139,15 @@ a broken predicate (four symptoms, four diagnostic procedures) · five
 hands-on practice exercises with worksheet sketches and model solutions ·
 how to make predicates survive their author (sharing, CI integration,
 review checklists).
+
+**Part XIV — Companion Tools & References** · pickaxe (`git log -S` / `-G`)
+and `git log -L` as the complement to bisect (with a decision matrix and
+worked examples) · the practical 2026 guide to AI-augmented bisection
+(what AI is good at, what it isn't, the human-in-the-loop workflow,
+prompting patterns that work, the verification ritual that's non-negotiable)
+· a flat glossary of every term used in the curriculum · a recipe index
+mapping "I have this problem" to "read this page" — designed for fast
+lookup once you've read the curriculum once.
 
 ## Requirements
 

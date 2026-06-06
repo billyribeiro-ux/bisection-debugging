@@ -22,6 +22,7 @@ codes, and is exactly the version embedded in the corresponding lesson.
 | `frameworks/`            | Part XII — bisection cost-model calculator, history-quality-index scorer, game-day workshop kit, anti-pattern audit checklist.|
 | `ecosystems/`            | Part XII — minimal bisection predicate snippets per language ecosystem (Node, Python, Go, Rust, Java, Ruby, PHP, .NET). |
 | `craft/`                 | Part XIII — predicate-craft pedagogy artifacts: skeleton template, pre-flight worksheet example, the 5 predicate patterns, debugging instrumentation, meta-predicate calibration, the 5 exercise model solutions, the canonical shareable-predicate template, audit + review checklists. |
+| `companion/`             | Part XIV — pickaxe + git log -L recipes, AI verification ritual + prompt templates (worksheet, audit, which-tool). |
 | `../.github/workflows/`  | `auto-bisect.yml` — GitHub Actions auto-bisect on nightly failure.            |
 
 ## Quick start

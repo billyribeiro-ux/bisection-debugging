@@ -230,6 +230,18 @@ const CATEGORY = {
   'ex-5-solution.mjs':           'craft',
   'shareable-predicate.sh':      'craft',
   'predicate-review.md':         'craft',
+
+  // Part XIV — Companion tools, AI guide, references
+  'pickaxe-S.sh':                'companion',
+  'pickaxe-G.sh':                'companion',
+  'log-L.sh':                    'companion',
+  'pickaxe-then-bisect.sh':      'companion',
+  'blame-reverse.sh':            'companion',
+  'when-merged.sh':              'companion',
+  'ai-verify-ritual.sh':         'companion',
+  'prompt-worksheet.md':         'companion',
+  'prompt-audit.md':             'companion',
+  'prompt-which-tool.md':        'companion',
 };
 
 // Titles whose target path is special (lives outside scripts/).
@@ -315,6 +327,10 @@ const SKIP_NAMES = new Set([
   'anti-1.sh', 'anti-2.sh', 'anti-3.sh', 'anti-4.sh', 'anti-5.sh',
   'anti-6.sh', 'anti-7.sh', 'anti-8.sh', 'anti-9.sh', 'anti-10.sh',
   'ci-predicate-check.yml',
+
+  // Part XIV — illustrative diagrams (not extracted)
+  'when-which-tool.txt',
+  'ai-bisect-workflow.txt',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [

@@ -11112,7 +11112,533 @@ jobs:
 <p>A predicate is a small program that decides truth about your code's history. The discipline of writing it well is one of the most leveraged skills in engineering — every good predicate finds one bug now and prevents that class of bug forever after. The investment in writing it with care: thirty extra minutes. The return: years of saved debugging time, for everyone who comes after you. <strong>This is the work that distinguishes engineering hobbies from engineering professions, and engineering professions from engineering excellence.</strong></p>
 <p>You now know how to do it. Go build the next one.</p>
 </div>
-<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how. And design the next system so that future bisections always work. And write predicates that survive you.</p>
+</template>
+
+<template data-page-title="Pickaxe and git log -L — Bisect's Complements" data-part="XIV — Companion Tools &amp; References">
+<span class="badge">Part XIV · Companion Tools &amp; References</span>
+<h2 class="page-title">Pickaxe (<code>-S</code>, <code>-G</code>) and <code>git log -L</code> — The Tools You Reach for Instead of Bisect</h2>
+<p class="lede"><code>git bisect</code> answers "when did behavior change?" but it's the wrong tool when you can ask a sharper question. The pickaxe (<code>git log -S</code> / <code>-G</code>) answers "when was this exact string introduced or removed?" and <code>git log -L</code> answers "how did this function evolve?". Engineers who know these three tools reach for the right one in 5 seconds instead of starting a 30-minute bisection that the pickaxe could have answered instantly.</p>
+
+<h3>The three questions, the three tools</h3>
+
+<table class="cmp">
+<tr><th>Question</th><th>Tool</th><th>Typical answer time</th></tr>
+<tr><td>"When did behavior X change?"</td><td><code>git bisect</code></td><td>log₂(N) × predicate cost</td></tr>
+<tr><td>"When was this exact string introduced/removed?"</td><td><code>git log -S 'string'</code> (pickaxe by count)</td><td>~1 second</td></tr>
+<tr><td>"When did any line matching this pattern change?"</td><td><code>git log -G 'regex'</code> (pickaxe by match)</td><td>~1 second</td></tr>
+<tr><td>"How did this function evolve over time?"</td><td><code>git log -L :functionName:path/to/file</code></td><td>~1 second</td></tr>
+<tr><td>"Who last touched this line?"</td><td><code>git blame</code> + <code>--reverse</code></td><td>~1 second</td></tr>
+</table>
+
+<h3>Pickaxe <code>-S</code> — by occurrence count</h3>
+
+<pre class="code" data-lang="shell" data-title="pickaxe-S.sh"># Find every commit that CHANGED THE NUMBER of occurrences of "fooBar"
+# (introduced it, removed it, or moved instances around).
+git log -S 'fooBar'
+
+# Restrict to specific files:
+git log -S 'fooBar' -- 'src/**/*.ts'
+
+# With patches shown, so you see what each commit did:
+git log -S 'fooBar' -p
+
+# Include parent SHA + summary for each hit:
+git log -S 'fooBar' --pretty=format:'%h %ai %an: %s'
+</pre>
+
+<p><code>-S</code> only matches commits where the <em>count</em> of occurrences changed. If a commit moves the string from one file to another without changing the total count, <code>-S</code> won't see it. That's usually what you want — finding introductions and removals.</p>
+
+<h3>Pickaxe <code>-G</code> — by any matching line</h3>
+
+<pre class="code" data-lang="shell" data-title="pickaxe-G.sh"># Find every commit where any added or removed line matched the regex.
+git log -G 'fooBar\(.*\)'
+
+# Combine with patches:
+git log -G 'console\.log\(.*password' -p
+
+# Useful when -S misses moves and reformats
+git log -G 'CACHE_KEY_PREFIX'
+</pre>
+
+<p><code>-G</code> matches even when the occurrence count stayed the same — useful when a commit just changed how the line read (whitespace, wrapping, identifier rename). The trade-off: more noise, including refactor commits that didn't change semantics.</p>
+
+<h3><code>git log -L</code> — trace a function or line range</h3>
+
+<pre class="code" data-lang="shell" data-title="log-L.sh"># Show every change to the function `calculateTax` in src/tax.mjs
+git log -L :calculateTax:src/tax.mjs
+
+# Same idea by line range — useful when the function name has multiple
+# matches or for non-function constructs (config blocks, etc.)
+git log -L 45,67:src/config.ts
+
+# Combined with -p (already implied by -L): each commit shows the patch
+# specifically for that function's lines, not the whole file.
+</pre>
+
+<p>This is one of the most under-used git commands. For "what's the history of this specific function?" — usually the question you actually want to answer — it's far better than scrolling through <code>git log -p file</code>.</p>
+
+<h3>The decision matrix</h3>
+
+<pre class="code" data-lang="text" data-title="when-which-tool.txt">SYMPTOM                                              TOOL
+=====================================================+==================
+"This function returns wrong value"                  | git log -L :func:file
+                                                     | (then bisect if needed)
+"This call to X was supposed to be removed"          | git log -S 'X('
+"This config value used to be Y, now it's Z"         | git log -S 'Z'
+"A line containing this pattern got introduced"      | git log -G 'pattern'
+"A test that used to pass now fails"                 | git bisect (no shortcut)
+"Memory grows over time"                             | git bisect (no shortcut)
+"Performance regressed"                              | git bisect with perf predicate
+"Security: when did this dangerous call appear?"     | git log -S 'eval(' -p
+"When did this dependency get pinned to that version"| git log -S '"version":' -p package.json
+"When was the rate-limit raised from 100 to 1000"    | git log -S '1000' -- rate-limit.ts
+</pre>
+
+<h3>Combining pickaxe with bisect</h3>
+<p>The senior workflow is to use them together: pickaxe finds candidates fast; bisect confirms or excludes them.</p>
+
+<pre class="code" data-lang="shell" data-title="pickaxe-then-bisect.sh"># Step 1: pickaxe — "what commits touched our cache key?"
+SUSPECTS=( $(git log --format=%h -S 'CACHE_KEY_PREFIX') )
+echo "Pickaxe candidates: ${SUSPECTS[*]}"
+
+# Step 2: for each candidate, run the predicate to see if it actually breaks
+for sha in "${SUSPECTS[@]}"; do
+  git checkout -q "$sha"
+  ./predicate.sh &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo "$sha OK" || echo "$sha BAD"
+done
+git checkout -q -
+
+# If the bug appears in commit X but not its predecessor, X is the culprit.
+# log₂(N) became O(small constant).
+</pre>
+
+<h3>The <code>git blame --reverse</code> trick</h3>
+
+<pre class="code" data-lang="shell" data-title="blame-reverse.sh"># Normal blame: "who last edited this line?"
+git blame src/file.ts -L 42,42
+
+# REVERSE blame: "what's the FIRST commit where this line had this content?"
+# Equivalent to bisecting the line's history forward in time.
+git blame --reverse v1.2..HEAD src/file.ts -L 42,42
+</pre>
+
+<p>Useful when you have a specific line right now and want to know when it last looked like this — the inverse of "when did it change."</p>
+
+<h3>The <code>git when-merged</code> companion</h3>
+<p>Once bisect or pickaxe lands on a commit, <code>git when-merged</code> (a separate tool: <code>git clone https://github.com/mhagger/git-when-merged</code>) tells you which merge brought it into your branch. When the answer to "which PR introduced this?" matters more than "which commit," this is the tool.</p>
+
+<pre class="code" data-lang="shell" data-title="when-merged.sh">git when-merged a3f9c81 main
+# → 7f8e9d2 (PR #1247 "Refactor cache layer", merged 2026-04-12)
+</pre>
+
+<div class="callout good">
+<div class="callout-title">The fluency check</div>
+<p>The next bug you investigate, ask out loud which question matches: <em>"when did behavior X change?"</em> (bisect) or <em>"when did this exact thing get added/removed?"</em> (pickaxe) or <em>"how did this function evolve?"</em> (log -L). If you reach for bisect every time, you're leaving 5-second answers on the table.</p>
+</div>
+</template>
+
+<template data-page-title="AI-Augmented Bisection — A 2026 Practical Guide" data-part="XIV — Companion Tools &amp; References">
+<span class="badge">Part XIV · Companion Tools &amp; References</span>
+<h2 class="page-title">AI-Augmented Bisection — A 2026 Practical Guide</h2>
+<p class="lede">Part XII's "Bisection in 2030" predicts AI-written predicates. This page is the more useful question: <em>what can you actually do with AI tools today?</em> Concrete patterns that work, specific failure modes to watch for, and the human-in-the-loop discipline that keeps you from being burned by an over-confident agent.</p>
+
+<h3>What AI is genuinely good at (today)</h3>
+
+<table class="cmp">
+<tr><th>Task</th><th>AI capability</th><th>Why it works</th></tr>
+<tr><td>Generating predicate boilerplate (5-section skeleton, traps, exit codes)</td><td>Excellent</td><td>Highly patterned; LLMs have seen thousands of examples</td></tr>
+<tr><td>Translating a bug description into the right pattern (perf-budget vs assertion vs golden-file)</td><td>Very good</td><td>Pattern recognition is its strength</td></tr>
+<tr><td>Auditing your predicate against the anti-patterns from Part XIII.5</td><td>Very good</td><td>Static analysis on natural language</td></tr>
+<tr><td>Writing the pre-flight worksheet (XIII.2)</td><td>Good</td><td>Templated; AI fills it given the bug description</td></tr>
+<tr><td>Suggesting a <code>git log -S</code> / <code>-G</code> / <code>-L</code> command from a free-form question</td><td>Very good</td><td>Maps natural language to specific syntax</td></tr>
+<tr><td>Generating the test of the predicate (bats / meta-predicate)</td><td>Good</td><td>Once predicate exists, tests are templated</td></tr>
+</table>
+
+<h3>What AI is bad at (today)</h3>
+
+<table class="cmp">
+<tr><th>Task</th><th>AI capability</th><th>Why it fails</th></tr>
+<tr><td>Choosing the right threshold for perf-budget predicates</td><td>Unreliable</td><td>Doesn't know your system's noise floor</td></tr>
+<tr><td>Knowing the monotonic property of your specific bug</td><td>Unreliable</td><td>Domain context not in the prompt</td></tr>
+<tr><td>Calibrating against known-good and known-bad endpoints</td><td>Won't do without instruction</td><td>Requires running code; many agents won't</td></tr>
+<tr><td>Recognizing when a bug is NOT bisectable</td><td>Often missed</td><td>AI is biased toward "give an answer"</td></tr>
+<tr><td>Detecting subtle race conditions in its own predicate</td><td>Often missed</td><td>Concurrency edge cases require empirical observation</td></tr>
+<tr><td>Knowing your project's conventions (paths, lockfile, build commands)</td><td>Unreliable without context</td><td>Has to be told or shown</td></tr>
+</table>
+
+<h3>The high-leverage workflow</h3>
+<p>The senior engineer's role with AI tools today is to do the parts AI can't, and offload the parts AI can.</p>
+
+<pre class="code" data-lang="text" data-title="ai-bisect-workflow.txt">┌─────────────────────────────────────────────────────────────────┐
+│ HUMAN: Write the pre-flight worksheet (Part XIII.2)            │
+│        - Candidate set                                          │
+│        - Monotonic property                                     │
+│        - Confirmed good endpoint                                │
+│        - Confirmed bad endpoint                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AI: Generate iteration-1 predicate from the worksheet           │
+│     - Uses the right pattern (XIII.4)                          │
+│     - Includes 5 sections (XIII.1)                             │
+│     - Respects 125/1/0 exit codes                               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ HUMAN: Run the predicate at known endpoints                     │
+│        - At good SHA → must exit 0                              │
+│        - At bad SHA → must exit 1                               │
+│        - If either is wrong, ITERATION CONTINUES                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AI: Audit the predicate against anti-patterns (XIII.5)         │
+│     - Asks: "Do you set TZ? LC_ALL? Wait for readiness?"        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ HUMAN: Run git bisect run, watch first few rounds              │
+│        - If results inconsistent → fix predicate, re-run        │
+│        - If results consistent → trust + verify final SHA       │
+└─────────────────────────────────────────────────────────────────┘
+</pre>
+
+<h3>Prompting patterns that work</h3>
+
+<h4>Pattern 1 — The "from the worksheet" prompt</h4>
+<pre class="code" data-lang="markdown" data-title="prompt-worksheet.md">I need a `git bisect run` predicate for this project. Here's my
+pre-flight worksheet — generate the predicate following the five-section
+structure (setup with exit 125 on env errors, cleanup registered before
+exercise, exercise, observe, exit) and the perf-budget pattern.
+
+**Candidate set:** 340 commits since release-2026-04-15
+**Monotonic property:** p99 of 20 GET /checkout requests &lt; 300 ms
+**Confirmed good:** SHA a3f9c81 — p99 = 280 ms ± 30 ms over 8 runs
+**Confirmed bad:** SHA e7b2a91 — p99 = 1.65 s ± 200 ms over 8 runs
+**Project conventions:** pnpm + node 24.16.0, `pnpm build` produces
+dist/server.js, server listens on $PORT, /health endpoint exists.
+
+Constraints:
+- Use random port, not 3000
+- Use `--frozen-lockfile --prefer-offline` for install
+- Include readiness wait (not arbitrary sleep)
+- Distinguish env failures (exit 125) from real failures (exit 1)
+- Exit 125 if &gt; 5 of 20 measurement requests fail
+
+Generate the predicate and a bats test that verifies it returns 0 at
+a3f9c81 and 1 at e7b2a91.
+</pre>
+
+<p>That prompt routinely produces a predicate that's 80% correct on the first try. The remaining 20% is calibration against your specific system.</p>
+
+<h4>Pattern 2 — The "audit my predicate" prompt</h4>
+<pre class="code" data-lang="markdown" data-title="prompt-audit.md">Here's a bash predicate I wrote for git bisect run. Audit it against the
+ten anti-patterns:
+1. Exit-1 for environment errors
+2. Combining exercise and observation
+3. Hitting external services
+4. No cleanup trap
+5. Implicit time/locale/timezone dependency
+6. Mutating shared state between rounds
+7. Treating compile errors as test failures
+8. Using set -e alone (without explicit error handling)
+9. Counting tests instead of asserting outcomes
+10. Forgetting timeouts
+
+For each anti-pattern present, show the specific line and the fix.
+
+[paste predicate here]
+</pre>
+
+<h4>Pattern 3 — The "which tool?" prompt</h4>
+<pre class="code" data-lang="markdown" data-title="prompt-which-tool.md">I have this question about my git history: "When did the function
+calculateTax in src/tax.mjs start returning negative values for
+discount inputs?"
+
+Which git tool answers this fastest: bisect, pickaxe (-S/-G), or log -L?
+Generate the exact command(s).
+</pre>
+
+<h3>Specific tool guidance (2026 snapshot)</h3>
+
+<table class="cmp">
+<tr><th>Tool</th><th>Best for bisection use</th><th>Watch out for</th></tr>
+<tr><td><strong>Claude Code</strong></td><td>Full predicate scaffolding from a worksheet; multi-file refactor of test fixtures to support bisection; running the predicate and reporting back</td><td>May over-generate (helper functions you don't need)</td></tr>
+<tr><td><strong>Cursor</strong> (or Claude in Cursor)</td><td>Inline iteration on a single predicate file; "@-mention" the worksheet doc as context</td><td>Loses thread of conversation across long iterations</td></tr>
+<tr><td><strong>Cline / Continue</strong></td><td>Similar to Cursor; good for embedded usage</td><td>Same as Cursor</td></tr>
+<tr><td><strong>Copilot Workspace</strong></td><td>Multi-file PR scaffolding (predicate + test + workflow file)</td><td>Good at scaffolding, weak at empirical verification</td></tr>
+<tr><td><strong>devin</strong></td><td>Best with full repo access; can iterate empirically (run, check, fix)</td><td>Cost; verification of its claimed results is essential</td></tr>
+</table>
+
+<h3>The verification ritual — non-negotiable</h3>
+<p>Whatever AI generates, run the meta-predicate calibration from Part XIII.6 before trusting it:</p>
+
+<pre class="code" data-lang="shell" data-title="ai-verify-ritual.sh">#!/usr/bin/env bash
+# Always run after an AI generates a predicate. Do not skip.
+set -uo pipefail
+
+GOOD_SHA="${1:?known-good SHA}"
+BAD_SHA="${2:?known-bad SHA}"
+
+echo "=== Verifying AI predicate against known endpoints ==="
+
+# Test at good (should exit 0)
+git checkout -q "$GOOD_SHA"
+./predicate.sh &gt;/dev/null 2&gt;&amp;1
+[ $? -eq 0 ] || { echo "FAIL: predicate exits non-zero at good SHA"; exit 1; }
+
+# Test at bad (should exit 1)
+git checkout -q "$BAD_SHA"
+./predicate.sh &gt;/dev/null 2&gt;&amp;1
+[ $? -eq 1 ] || { echo "FAIL: predicate exits non-1 at bad SHA"; exit 1; }
+
+# Stability: run 5 times at good, expect all 0
+git checkout -q "$GOOD_SHA"
+for i in {1..5}; do
+  ./predicate.sh &gt;/dev/null 2&gt;&amp;1
+  [ $? -eq 0 ] || { echo "FAIL: instability at good SHA on iteration $i"; exit 1; }
+done
+
+# Stability: run 5 times at bad, expect all 1
+git checkout -q "$BAD_SHA"
+for i in {1..5}; do
+  ./predicate.sh &gt;/dev/null 2&gt;&amp;1
+  [ $? -eq 1 ] || { echo "FAIL: instability at bad SHA on iteration $i"; exit 1; }
+done
+
+git checkout -q -
+echo "VERIFIED: predicate is calibrated and stable."
+</pre>
+
+<h3>When NOT to use AI</h3>
+
+<ul>
+  <li><strong>Security-sensitive predicates.</strong> A predicate that runs in CI with access to secrets, or that touches production data, deserves human authorship. AI is fine for the structure; the security-relevant code is human.</li>
+  <li><strong>When ground truth is unclear.</strong> If you don't yet have a confirmed good and bad endpoint, no AI can generate a predicate that means anything. Do the worksheet first.</li>
+  <li><strong>When the codebase has unusual conventions.</strong> If your project does something nonstandard (custom build tooling, unusual test harness), give the AI explicit context or just write the predicate yourself.</li>
+  <li><strong>When the bug is rare and you only get one shot.</strong> If reproducing the bug at all is expensive (e.g., a flaky production incident), invest the human time to write a careful predicate; don't trust AI's first draft.</li>
+</ul>
+
+<h3>The human responsibility that doesn't transfer</h3>
+
+<ul>
+  <li><strong>Choosing the monotonic property.</strong> AI doesn't know what "broken" means for your bug. You must articulate it.</li>
+  <li><strong>Confirming endpoints.</strong> Running the predicate at known good/bad SHAs is empirical work the AI usually skips. You own this.</li>
+  <li><strong>Owning the verdict.</strong> When bisect reports a commit, you decide whether to trust it. AI can audit your reasoning; it can't replace your judgment.</li>
+  <li><strong>Knowing when to stop.</strong> If three iterations of AI-generated predicates all give different culprits, the bug isn't bisectable. AI won't tell you to give up; a senior engineer will.</li>
+</ul>
+
+<div class="callout good">
+<div class="callout-title">The 2026 senior move</div>
+<p>AI tools turn the act of writing a predicate from a 30-minute task into a 5-minute task <em>when the worksheet is right</em>. The leverage isn't in the predicate-generation step — it's in the worksheet. Engineers who spend more time on the worksheet (the human-only thinking) and less time on the boilerplate (the AI-friendly mechanics) ship faster than engineers who try to make AI do the whole job. The principle hasn't changed; the boundary has.</p>
+</div>
+</template>
+
+<template data-page-title="Glossary" data-part="XIV — Companion Tools &amp; References">
+<span class="badge">Part XIV · Companion Tools &amp; References</span>
+<h2 class="page-title">Glossary</h2>
+<p class="lede">Every term used in this curriculum, defined in one line. For navigating the 87 pages, this page is a flat dictionary — alphabetical, brief, and links to the page where the concept is developed.</p>
+
+<h3>A–D</h3>
+<table class="cmp">
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td><strong>Anti-pattern</strong></td><td>A specific kind of mistake that produces a particular bad outcome. Catalogued for both bisection (XII.7) and predicates (XIII.5).</td></tr>
+<tr><td><strong>Atomic commit</strong></td><td>A commit representing one logical change, small enough that bisection landing on it gives an actionable answer.</td></tr>
+<tr><td><strong>Bayesian bisection</strong></td><td>Sequential bisection that maintains a posterior probability over candidates and picks the next test to maximize expected entropy reduction. Used for noisy predicates. (IX.2)</td></tr>
+<tr><td><strong>Behavioral assertion predicate</strong></td><td>Predicate that asserts a function returns a specific value for a specific input. The most common shape. (XIII.4)</td></tr>
+<tr><td><strong>Bisect log</strong></td><td>The record of every commit tested during a <code>git bisect</code> session, with verdicts. Saved automatically; can be replayed.</td></tr>
+<tr><td><strong>Bisection cost model</strong></td><td>Quantitative formula predicting wall-clock and dollar cost of a bisection before starting it. (XII.1)</td></tr>
+<tr><td><strong>BSC (binary symmetric channel)</strong></td><td>Information-theoretic model of a noisy oracle that flips its answer with probability p. Used to derive lower bounds on Bayesian bisection. (IX.1)</td></tr>
+<tr><td><strong>Bug</strong></td><td>A gap between what software does and what it should do. (0.1)</td></tr>
+<tr><td><strong>Candidate set</strong></td><td>The list of possible culprits — usually commits, but can be files, configs, flags, or dates.</td></tr>
+<tr><td><strong>Channel capacity (C)</strong></td><td>Information-theoretic maximum bits per query of a noisy oracle: C(p) = 1 − H₂(p). (IX.1)</td></tr>
+<tr><td><strong>Coproc</strong></td><td>Bash/zsh built-in that keeps a long-running helper process around so its setup cost is paid once. (VI.3)</td></tr>
+<tr><td><strong>Culprit</strong></td><td>The commit, file, or config the bisection identifies as the bug's introduction point.</td></tr>
+<tr><td><strong>ddmin (Delta Debugging Minimization)</strong></td><td>Zeller's 1999 algorithm for minimizing a failing input by binary subdivision. Generalization of bisection to non-monotonic inputs. (IX.3)</td></tr>
+</table>
+
+<h3>E–H</h3>
+<table class="cmp">
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td><strong>Endpoint</strong></td><td>Either the known-good or known-bad commit at the boundaries of bisection's search range.</td></tr>
+<tr><td><strong>Entropy (Shannon)</strong></td><td>H(X) = log₂(N) bits for a uniform prior over N candidates. The lower bound on queries any algorithm needs. (IX.1)</td></tr>
+<tr><td><strong>ERR trap</strong></td><td>Bash trap that fires on any unexpected non-zero exit, for centralized error reporting. (VI.4)</td></tr>
+<tr><td><strong>Flake / flake rate (p)</strong></td><td>Probability that a deterministic-looking predicate gives a wrong answer on any single call. Drives Bayesian bisection.</td></tr>
+<tr><td><strong>Game day</strong></td><td>A workshop format for practicing bisection on a curated repo with known bugs. (XII.8)</td></tr>
+<tr><td><strong>Golden file</strong></td><td>A frozen "correct" output from a known-good commit, used as the comparison baseline in golden-file predicates. (XIII.4)</td></tr>
+<tr><td><strong>HDD (Hierarchical Delta Debugging)</strong></td><td>Misherghi &amp; Su's 2006 extension of ddmin to tree-structured inputs (AST, JSON, HTML). (IX.3)</td></tr>
+<tr><td><strong>Hermeticity</strong></td><td>The property that a predicate's outcome depends only on its inputs, not on external state. Scored by the PHS. (XII.4)</td></tr>
+<tr><td><strong>History Quality Index (HQI)</strong></td><td>A 100-point rubric for how bisectable a git repository is. (XII.3)</td></tr>
+</table>
+
+<h3>I–M</h3>
+<table class="cmp">
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td><strong>Iteration</strong></td><td>One revision of a predicate as it's refined toward bulletproof form. (XIII.3)</td></tr>
+<tr><td><strong>Lifecycle hook (npm/pnpm)</strong></td><td>Scripts (<code>preX</code>/<code>postX</code>) that auto-run before/after a named script. pnpm requires <code>enable-pre-post-scripts=true</code> to enable for non-standard scripts.</td></tr>
+<tr><td><strong>Meta-predicate</strong></td><td>A test of the predicate itself: verifies the predicate exits 0 at known-good and 1 at known-bad before trusting it. (XIII.6)</td></tr>
+<tr><td><strong>Monotonic / monotonicity invariant</strong></td><td>The property that the bug's state flips exactly once across the history. The precondition for bisection to work.</td></tr>
+</table>
+
+<h3>N–R</h3>
+<table class="cmp">
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td><strong>Nameref (<code>declare -n</code>)</strong></td><td>Bash 4.3+ feature for indirect array references — pass arrays by reference into functions. (VI.3)</td></tr>
+<tr><td><strong>Oracle</strong></td><td>The function that, given a candidate, returns "good" or "bad." In code, the predicate.</td></tr>
+<tr><td><strong>Perf-budget predicate</strong></td><td>Predicate that runs a measurement and exits 0 if the value is below threshold. (XIII.4)</td></tr>
+<tr><td><strong>Pickaxe</strong></td><td><code>git log -S 'string'</code> (by occurrence count) or <code>-G 'regex'</code> (by line match) — for finding when specific content appeared or disappeared. (XIV.1)</td></tr>
+<tr><td><strong>Predicate</strong></td><td>A program that decides whether a commit (or candidate) is "good" or "bad." The unit of bisection. Has five sections (XIII.1).</td></tr>
+<tr><td><strong>Predicate Hermeticity Score (PHS)</strong></td><td>A 70-point rubric for evaluating predicate quality across 7 axes. (XII.4)</td></tr>
+<tr><td><strong>Pre-flight worksheet</strong></td><td>Seven questions to answer in writing before writing any predicate code. (XIII.2)</td></tr>
+<tr><td><strong>Process group (pgid)</strong></td><td>Linux/Unix grouping of processes for tree-level signaling. Used in predicates to kill spawned subtrees cleanly. (VI.5)</td></tr>
+<tr><td><strong>Reproducibility</strong></td><td>Same inputs → same outputs, every time. Foundational for bisection (XI.7).</td></tr>
+<tr><td><strong>Round</strong></td><td>One iteration of bisection: checkout a candidate, run the predicate, record the verdict.</td></tr>
+</table>
+
+<h3>S–Z</h3>
+<table class="cmp">
+<tr><th>Term</th><th>Definition</th></tr>
+<tr><td><strong>Search space</strong></td><td>Synonymous with candidate set.</td></tr>
+<tr><td><strong>Setup / Exercise / Observe / Cleanup / Exit</strong></td><td>The five sections of a predicate. (XIII.1)</td></tr>
+<tr><td><strong>Shannon's lower bound</strong></td><td>No algorithm can identify the bad candidate in fewer than ⌈log₂(N)⌉ queries on average. Bisection achieves this. (IX.1)</td></tr>
+<tr><td><strong>Skip (exit 125)</strong></td><td>Verdict meaning "this commit is untestable for environmental reasons." Tells <code>git bisect run</code> to skip and move on.</td></tr>
+<tr><td><strong>Smoke-test predicate</strong></td><td>Predicate that confirms a basic functional invariant: the service starts, the endpoint returns 200, etc. (XIII.4)</td></tr>
+<tr><td><strong>Trap chain</strong></td><td>Pattern of composing multiple cleanup functions into one EXIT trap rather than registering separate traps that overwrite each other. (VI.4)</td></tr>
+<tr><td><strong>Type-check predicate</strong></td><td>Predicate that just runs the type checker. Fastest possible predicate at 1–5 seconds. (XIII.4)</td></tr>
+<tr><td><strong>Untestable</strong></td><td>A commit whose predicate can't produce a meaningful answer (e.g., the build is broken at that commit). Returns 125.</td></tr>
+<tr><td><strong>Wait-for-readiness</strong></td><td>Pattern of polling a service's health endpoint instead of using arbitrary <code>sleep</code>. (XIII.3)</td></tr>
+<tr><td><strong>Worktree (git)</strong></td><td>An additional checkout of a git repo at a different commit, used for parallel bisection so workers don't share working state. (VI.6)</td></tr>
+<tr><td><strong>Zsh module</strong></td><td>One of zsh's optional loadable libraries: <code>zsh/system</code>, <code>zsh/datetime</code>, <code>zsh/net/tcp</code>, etc. Used for fork-free operations in predicates. (VII.6)</td></tr>
+<tr><td><strong>zpty</strong></td><td>Zsh module for pseudo-terminal control — drive interactive REPLs deterministically. (VII.2, VII.3)</td></tr>
+</table>
+
+<p style="margin-top: 24px; color: var(--fg-dim); font-size: 13px;">⊕ Page references like "(IX.3)" refer to the page number within the part — e.g. IX.3 = "Hierarchical Delta Debugging" page in Part IX.</p>
+</template>
+
+<template data-page-title="Recipe Index" data-part="XIV — Companion Tools &amp; References">
+<span class="badge">Part XIV · Companion Tools &amp; References</span>
+<h2 class="page-title">Recipe Index — "I Have This Problem" → "Read This Page"</h2>
+<p class="lede">A flat lookup table for the working engineer. Skim the left column for what matches your situation; the right column points to the page that has the specific answer. Bookmark this page; you'll come back to it more than any other.</p>
+
+<h3>Symptom → page</h3>
+
+<table class="cmp">
+<tr><th>If your situation matches…</th><th>Read…</th></tr>
+<tr><td>"I have no idea what bisection is"</td><td>0.5 (Binary Search, Visualized) → I.1 (What Is Bisection)</td></tr>
+<tr><td>"How do I use <code>git bisect</code>?"</td><td>II.1 (git bisect Basics)</td></tr>
+<tr><td>"How do I automate <code>git bisect</code>?"</td><td>II.2 (Automated git bisect run)</td></tr>
+<tr><td>"My tests are flaky and the bisection is wrong"</td><td>II.3 (Skips, Flakes, Merge Commits) → IX.2 (Bayesian Bisection)</td></tr>
+<tr><td>"The bisection lands on a merge commit"</td><td>II.4 (Rebases, Squashes, Hidden History)</td></tr>
+<tr><td>"I want to bisect a Svelte/React/Vue file that broke"</td><td>III.1 (Bisecting Svelte Files) + III.2 (Memory Leak Bisection)</td></tr>
+<tr><td>"I want to bisect a memory leak"</td><td>III.2 (Memory Leak Bisection)</td></tr>
+<tr><td>"A CSS / Tailwind class broke the layout"</td><td>III.3 (Bisecting Tailwind Classes)</td></tr>
+<tr><td>"A new dependency version broke the build"</td><td>IV.1 (Bisecting package.json) + IV.2 (Lockfile Bisection)</td></tr>
+<tr><td>"A tsconfig.json flag broke type checks"</td><td>IV.3 (tsconfig Bisection)</td></tr>
+<tr><td>"A Vite plugin started misbehaving"</td><td>IV.3 (Vite Plugin Bisection)</td></tr>
+<tr><td>"A specific test went from green to red"</td><td>V.1 (Flaky Test Polluter Finder)</td></tr>
+<tr><td>"Something got slower"</td><td>V.2 (Perf Budget Predicate) → XIII.4 (Perf-Budget Pattern)</td></tr>
+<tr><td>"A Node server has a memory leak"</td><td>V.3 (Server Leak Detection)</td></tr>
+<tr><td>"I want to write a bash bisection from scratch"</td><td>VI.1 + VI.2 (Bash toolkit) → XIII.3 (Building a Predicate Step by Step)</td></tr>
+<tr><td>"I want my predicate to be Bash-5 idiomatic"</td><td>VI.3 (Bash 5 Features)</td></tr>
+<tr><td>"My predicate's error handling is sloppy"</td><td>VI.4 (Error Handling Discipline)</td></tr>
+<tr><td>"My server processes are leaking between rounds"</td><td>VI.5 (Process and Signal Management)</td></tr>
+<tr><td>"I want to run rounds in parallel"</td><td>VI.6 (Concurrent Bisection with flock + GNU parallel)</td></tr>
+<tr><td>"My predicate doesn't work and I don't know why"</td><td>VI.7 (Debugging Bash Predicates) + XIII.6 (Debugging Your Own Predicate)</td></tr>
+<tr><td>"My predicate is too slow"</td><td>VI.8 (Bash Performance for Long Predicates)</td></tr>
+<tr><td>"I need to drive an interactive REPL"</td><td>VII.2 (Zsh zpty REPL Bisection)</td></tr>
+<tr><td>"I'm filtering files by mtime/size/permission"</td><td>VII.4 (Zsh Glob Qualifiers Deep Dive)</td></tr>
+<tr><td>"I need to bisect a CI failure that only happens overnight"</td><td>VIII.1 (Bisecting in CI) + VIII.2 (Auto-bisect on Nightly Failure)</td></tr>
+<tr><td>"The bisection involves data, not code"</td><td>VIII.3 (Multi-service Version Bisection)</td></tr>
+<tr><td>"I'm bisecting a feature-flag combination"</td><td>VIII.4 (Feature Flag Bisection) + X.3 (Modern Feature Flag Bisection with ddmin fallback)</td></tr>
+<tr><td>"What's the math behind log₂(N) being optimal?"</td><td>IX.1 (The Information Theory of Bisection)</td></tr>
+<tr><td>"My predicate has a flake rate above 5%"</td><td>IX.2 (Bayesian Bisection for Noisy Predicates)</td></tr>
+<tr><td>"The bug needs MULTIPLE flags on at once"</td><td>IX.3 (Hierarchical Delta Debugging) + X.3 ddmin fallback</td></tr>
+<tr><td>"I think the compiler is the bug"</td><td>IX.4 (Bisecting Compiler Passes — LLVM, cargo-bisect-rustc, gcc)</td></tr>
+<tr><td>"A race condition only fires sometimes"</td><td>IX.5 (Bisecting Concurrent Bugs with rr)</td></tr>
+<tr><td>"My fine-tuned model regressed at some checkpoint"</td><td>IX.6 (AI Model Checkpoint Bisection)</td></tr>
+<tr><td>"An npm/pip package became malicious between dates"</td><td>IX.7 (Supply Chain Bisection)</td></tr>
+<tr><td>"One service in a distributed trace is slow"</td><td>IX.8 (Distributed Trace Bisection)</td></tr>
+<tr><td>"A Kubernetes deployment went red"</td><td>X.1 (Bisecting Kubernetes Manifests)</td></tr>
+<tr><td>"Terraform / AWS cost spike"</td><td>X.2 (Bisecting Infrastructure-as-Code)</td></tr>
+<tr><td>"A Docker image suddenly tripled in size"</td><td>X.4 (Bisecting Docker Image Layers)</td></tr>
+<tr><td>"Frontend breaks against newer API responses"</td><td>X.5 (Bisecting API Contracts and Schemas)</td></tr>
+<tr><td>"We need to make our codebase more bisectable"</td><td>XI.1 (Designing Systems to Be Bisectable)</td></tr>
+<tr><td>"We're in a live incident and need to find a culprit"</td><td>XI.2 (Bisection in Production Incident Response)</td></tr>
+<tr><td>"When do I bisect vs check observability?"</td><td>XI.3 (Bisection vs Observability)</td></tr>
+<tr><td>"I need to convince leadership to invest in CI speed"</td><td>XI.4 (Cost of Un-Bisectable Bugs — Business Case)</td></tr>
+<tr><td>"Should we be bisecting this, or is it the wrong tool?"</td><td>XI.5 (When NOT to Bisect — Decision Framework)</td></tr>
+<tr><td>"I'm mentoring juniors on debugging"</td><td>XI.6 (Mentoring Debugging Skill)</td></tr>
+<tr><td>"Our team's bisections fail half the time"</td><td>XI.7 (Building a Culture of Reproducibility) + XII.3 (HQI)</td></tr>
+<tr><td>"We just had a SEV-1 — postmortem time"</td><td>XI.8 (Postmortems and Blameless Culture)</td></tr>
+<tr><td>"Is bisection worth doing for this bug?"</td><td>XII.1 (Bisection Cost Model)</td></tr>
+<tr><td>"How long should this bisection take?"</td><td>XII.2 (Numbers — Real-World Benchmarks)</td></tr>
+<tr><td>"Is our repo bisectable enough?"</td><td>XII.3 (History Quality Index)</td></tr>
+<tr><td>"Is my predicate hermetic enough?"</td><td>XII.4 (Predicate Hermeticity Score)</td></tr>
+<tr><td>"I want to learn from war stories"</td><td>XII.5 (Hard-Won Lessons)</td></tr>
+<tr><td>"I'm hiring/leveling for debugging skill"</td><td>XII.6 (Debugging Skill Calibration Rubric)</td></tr>
+<tr><td>"What anti-patterns make repos un-bisectable?"</td><td>XII.7 (Anti-Bisection Patterns Catalog)</td></tr>
+<tr><td>"I want to run a workshop for the team"</td><td>XII.8 (Game Day — Runnable Workshop)</td></tr>
+<tr><td>"My project is in Python/Rust/Go/Java — what's specific?"</td><td>XII.9 (Bisection Across Languages and Ecosystems)</td></tr>
+<tr><td>"How will this field look in 5 years?"</td><td>XII.10 (Bisection in 2030)</td></tr>
+<tr><td>"How do I write my first predicate from scratch?"</td><td>XIII.1 (Anatomy) → XIII.2 (Worksheet) → XIII.3 (Step by Step)</td></tr>
+<tr><td>"Which predicate pattern fits my bug?"</td><td>XIII.4 (The Five Predicate Patterns)</td></tr>
+<tr><td>"Predicate gives wrong answers — diagnose"</td><td>XIII.6 (Debugging Your Own Predicate)</td></tr>
+<tr><td>"I want to practice predicate-writing"</td><td>XIII.7 (Practice Exercises)</td></tr>
+<tr><td>"Make my predicate maintainable for the team"</td><td>XIII.8 (Sharing Predicates)</td></tr>
+<tr><td>"When did this specific string get added?"</td><td>XIV.1 (Pickaxe and git log -L)</td></tr>
+<tr><td>"How do I use AI to help write the predicate?"</td><td>XIV.2 (AI-Augmented Bisection — 2026 Guide)</td></tr>
+<tr><td>"What does [term] mean?"</td><td>XIV.3 (Glossary)</td></tr>
+</table>
+
+<h3>Tool → page</h3>
+
+<table class="cmp">
+<tr><th>You're reaching for…</th><th>Page that covers it</th></tr>
+<tr><td><code>git bisect run</code></td><td>II.2</td></tr>
+<tr><td><code>git log -S</code> / <code>-G</code> / <code>-L</code></td><td>XIV.1</td></tr>
+<tr><td><code>git blame --reverse</code></td><td>XIV.1</td></tr>
+<tr><td><code>cargo-bisect-rustc</code></td><td>IX.4</td></tr>
+<tr><td><code>rr</code> (record/replay)</td><td>IX.5</td></tr>
+<tr><td><code>creduce</code> / <code>shrinkray</code></td><td>IX.3 (HDD)</td></tr>
+<tr><td>LLVM <code>-opt-bisect-limit</code></td><td>IX.4</td></tr>
+<tr><td><code>oasdiff</code> / <code>graphql-inspector</code></td><td>X.5</td></tr>
+<tr><td><code>dive</code> (Docker layer inspector)</td><td>X.4</td></tr>
+<tr><td><code>flock</code> (file locking)</td><td>VI.6</td></tr>
+<tr><td>GNU <code>parallel</code></td><td>VI.6</td></tr>
+<tr><td><code>bats</code> (bash test framework)</td><td>VI.7</td></tr>
+<tr><td><code>shellcheck</code></td><td>VI.7</td></tr>
+<tr><td><code>bashdb</code></td><td>VI.7</td></tr>
+<tr><td>zsh's <code>zpty</code></td><td>VII.2, VII.3</td></tr>
+<tr><td>zsh's <code>zsh-async</code></td><td>VII.7</td></tr>
+<tr><td>pnpm <code>onlyBuiltDependencies</code></td><td>(day-15 final package.json)</td></tr>
+</table>
+
+<h3>Framework / artifact → page</h3>
+
+<table class="cmp">
+<tr><th>Looking up…</th><th>Page</th></tr>
+<tr><td>The Bisection Cost Model</td><td>XII.1</td></tr>
+<tr><td>The History Quality Index (HQI)</td><td>XII.3</td></tr>
+<tr><td>The Predicate Hermeticity Score (PHS)</td><td>XII.4</td></tr>
+<tr><td>The Debugging Skill Calibration Rubric (L3-L7)</td><td>XII.6</td></tr>
+<tr><td>The Anti-Bisection Patterns Catalog</td><td>XII.7</td></tr>
+<tr><td>The Bisectability Scorecard</td><td>XI.1</td></tr>
+<tr><td>The Postmortem Template</td><td>XI.8</td></tr>
+<tr><td>The Pre-flight Worksheet (predicate)</td><td>XIII.2</td></tr>
+<tr><td>The Predicate Audit Checklist</td><td>XIII.5</td></tr>
+<tr><td>The Predicate Code Review Checklist</td><td>XIII.8</td></tr>
+<tr><td>The Game Day Workshop format</td><td>XII.8</td></tr>
+</table>
+
+<div class="callout">
+<div class="callout-title">Use this page first when you have a real bug</div>
+<p>The temptation is to start reading the curriculum top-to-bottom when you hit a problem. Skip that. Find the row in this index that matches your situation; jump to that page; come back to this index when you need the next thing. The curriculum is structured for sequential learning but optimized for indexed lookup once you've read it once.</p>
+</div>
+<p style="margin-top: 36px; color: var(--fg-faint); font-size: 13px;">— end of curriculum. Now go halve something. And teach the next engineer how. And design the next system so that future bisections always work. And write predicates that survive you. And know which tool you're reaching for and why.</p>
 </template>
 
 
