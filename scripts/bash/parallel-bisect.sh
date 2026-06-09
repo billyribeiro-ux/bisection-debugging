@@ -47,7 +47,8 @@ while (( TOTAL > 1 )); do
     git worktree remove --force "/tmp/wt-$j" >/dev/null
   done
 
-  # Find the monotonicity boundary: where 0 → 1 transition is
+  # Find the monotonicity boundary: where the 0 → 1 transition is.
+  found=0
   for ((k = 0; k < ${#RESULTS[@]}; k++)); do
     if (( RESULTS[k] == 1 )); then
       # culprit is between PROBES[k-1] and PROBES[k]
@@ -55,9 +56,17 @@ while (( TOTAL > 1 )); do
       NEW_HI_IDX=$(( STEP * (k+1) ))
       CANDIDATES=("${CANDIDATES[@]:$NEW_LO_IDX:$((NEW_HI_IDX - NEW_LO_IDX))}")
       TOTAL=${#CANDIDATES[@]}
+      found=1
       break
     fi
   done
+  if (( !found )); then
+    # Every probe passed → the culprit sits between the LAST probe and HI.
+    # Without this branch the loop would spin forever on that case.
+    NEW_LO_IDX=$(( STEP * ${#PROBES[@]} ))
+    CANDIDATES=("${CANDIDATES[@]:$NEW_LO_IDX}")
+    TOTAL=${#CANDIDATES[@]}
+  fi
 done
 
 echo "Culprit: ${CANDIDATES[0]}"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Bisect across PyPI publish times.
-# Uses pip-tools to resolve a constraints file as of a specific date.
+# Resolves "latest as of DATE" via PyPI's JSON API into a constraints file.
+# (uv has this built in: `uv pip install --exclude-newer DATE`; plain pip
+# does not, hence the manual resolution below.)
 set -euo pipefail
 PKG="$1"; AT="$2"
 

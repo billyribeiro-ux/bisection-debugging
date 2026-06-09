@@ -4,7 +4,15 @@ zmodload zsh/zpty
 
 zpty NODE 'node --experimental-vm-modules'
 zpty -w NODE 'const result = await import("./src/buggy.mjs"); console.log(result.value);'
-zpty -r -t NODE OUTPUT 5    # read with 5-second timeout
+# zpty -r has no timeout argument; -t just makes the read NON-blocking.
+# Poll with a deadline yourself:
+OUTPUT=
+deadline=$(( SECONDS + 5 ))
+while (( SECONDS < deadline )); do
+  zpty -rt NODE chunk && OUTPUT+=$chunk
+  [[ $OUTPUT == *$'\n'* ]] && break
+  sleep 0.1
+done
 zpty -d NODE                # close the pty
 
 if (( $#OUTPUT == 0 )); then

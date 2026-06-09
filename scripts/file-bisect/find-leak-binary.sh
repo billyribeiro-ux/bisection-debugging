@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 # find-leak-binary.sh
-# Binary-halves a set of files to find the one that breaks `svelte-check`.
-# Works on any check command that accepts a file list, not just svelte-check.
+# Binary-halves a set of files to find the one that breaks the checker.
+# Works with any check command that accepts a file list as arguments.
 #
 # WHY THIS WORKS:
-#   svelte-check (and tsc, eslint, biome) accept multiple files at once.
-#   If we hand it half the project and it passes, the bad file is in the other half.
-#   Recurse. log₂(N) invocations instead of N.
+#   tsc, eslint, and biome accept multiple files at once. If we hand the
+#   checker half the project and it passes, the bad file is in the other
+#   half. Recurse. log₂(N) invocations instead of N.
+#
+#   svelte-check is the exception: it has NO per-file CLI mode. Wrap it
+#   with the --tsconfig trick (svelte-check-subset.sh, below) first.
 #
 # USAGE:
-#   ./find-leak-binary.sh "pnpm exec svelte-check --filter" "src/lib/**/*.svelte"
-#   ./find-leak-binary.sh "pnpm exec tsc --noEmit"          "src/**/*.ts"
+#   ./find-leak-binary.sh "pnpm exec eslint"          "src/lib/**/*.svelte"
+#   ./find-leak-binary.sh "pnpm exec tsc --noEmit"    "src/**/*.ts"
+#   ./find-leak-binary.sh "./svelte-check-subset.sh"  "src/lib/**/*.svelte"
+#
+# CAVEAT (tsc): when files are passed on the CLI, tsc IGNORES tsconfig.json.
+#   If your project relies on compilerOptions to typecheck cleanly, use a
+#   generated tsconfig with a "files" list instead (same trick as the
+#   svelte-check wrapper below).
 #
 # OUTPUT:
 #   The exact file that, in isolation, fails the predicate.

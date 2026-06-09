@@ -28,7 +28,7 @@ function majorityWrongP(k, p) {
   return acc;
 }
 
-console.log('\nk-of-k voting schemes (drives p down at k× cost):');
+console.log('\nMajority-of-k voting (drives p down at k× cost):');
 for (const k of [1, 3, 5, 7, 9, 11]) {
   const pEff = majorityWrongP(k, p);
   const cEff = capacity(pEff);

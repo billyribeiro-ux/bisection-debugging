@@ -10,13 +10,16 @@ import { spawnSync } from 'child_process';
 
 const ckpt = process.env.CHECKPOINT;
 const threshold = Number(process.env.THRESHOLD || 0.7);
-const eval_suite = process.env.EVAL || 'evals/regression-suite.jsonl';
+const eval_suite = process.env.EVAL || 'my_regression_suite';
 const max_samples = Number(process.env.MAX_SAMPLES || 500);
 
 if (!ckpt) { console.error('Set CHECKPOINT'); process.exit(125); }
 
-// Use a deterministic eval — fix the seed, sort the prompts, no sampling.
-const env = { ...process.env, TRANSFORMERS_SEED: '42', TRANSFORMERS_OFFLINE: '1' };
+// Use a deterministic eval — fixed seed (the --seed flag below), pinned
+// network state. Note: --tasks takes a registered TASK NAME; to eval a
+// custom .jsonl, register it first with a small task YAML
+// (lm-eval docs: "new task guide") and pass that task's name here.
+const env = { ...process.env, TRANSFORMERS_OFFLINE: '1', HF_HUB_OFFLINE: '1' };
 
 const r = spawnSync('python', [
   '-m', 'lm_eval',
@@ -31,7 +34,7 @@ const r = spawnSync('python', [
 
 if (r.status !== 0) { console.error('Eval crashed'); process.exit(125); }
 
-const data = JSON.parse(require('fs').readFileSync('/tmp/eval.json', 'utf8'));
+const data = JSON.parse(fs.readFileSync('/tmp/eval.json', 'utf8'));
 const score = data.results[Object.keys(data.results)[0]].acc;
 console.log(`checkpoint=${ckpt}  score=${score.toFixed(4)}  threshold=${threshold}`);
 

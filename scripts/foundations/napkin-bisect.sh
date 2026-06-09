@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # napkin-bisect.sh — the absolute simplest bisection.
-# Usage:  ./napkin-bisect.sh "svelte-check --filter {}" src/lib/**/*.svelte
+# Usage:  ./napkin-bisect.sh "pnpm exec eslint {}" src/lib/**/*.svelte
 #
-# {} is replaced with the file being tested.
+# {} is replaced with the files being tested. Use any checker that accepts
+# a list of files as arguments (eslint, tsc --noEmit, biome check).
 
 predicate="$1"; shift
 files=("$@")

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Default PS4 is "+ ". Replace with timestamps, file:line, and elapsed time.
 
-export PS4='+ \D{%H:%M:%S.%N} ${BASH_SOURCE##*/}:${LINENO}: '
+# $EPOCHREALTIME for sub-second precision — \D{…} goes through strftime,
+# which has no %N, so \D{%H:%M:%S.%N} would print a literal "%N".
+export PS4='+ $EPOCHREALTIME ${BASH_SOURCE##*/}:${LINENO}: '
 set -x
 
 # Trace now looks like:

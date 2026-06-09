@@ -21,6 +21,10 @@ RC=$?
 # Provider errors (e.g. AWS credentials expired) — skip, not the bug.
 grep -qE "Error:|InvalidClientToken|AccessDenied" /tmp/plan.out && [ $RC -ne 0 ] && exit 125
 
+# ANY other failed plan is also unjudgeable: without this, a commit whose
+# plan didn't even run would fall through and be scored "good".
+[ $RC -ne 0 ] && exit 125
+
 if grep -qF "$SIGNATURE" /tmp/plan.out; then
   exit 1   # the bad change is present
 else

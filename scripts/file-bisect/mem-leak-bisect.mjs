@@ -14,6 +14,9 @@
 //   node mem-leak-bisect.mjs http://localhost:5173/__leak-harness "Button,Card,Chart,Modal,..."
 //
 // HARNESS REQUIREMENT (drop into your SvelteKit dev server):
+//   src/routes/__leak-harness/+page.js:
+//     export const ssr = false;   // REQUIRED: the harness touches `window`,
+//                                 // which does not exist during SSR.
 //   src/routes/__leak-harness/+page.svelte:
 //   <script>
 //     import { mount, unmount } from 'svelte';

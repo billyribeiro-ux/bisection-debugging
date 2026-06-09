@@ -16,7 +16,9 @@ after_observe() {
 
 before_observe
 # === OBSERVATION block ===
-RESULT=$(curl -sf -w '%{http_code}' "http://localhost:$PORT/checkout")
+# -o /dev/null is load-bearing: without it the body lands in RESULT in
+# front of the status code and the == "200" test can never match.
+RESULT=$(curl -sf -o /dev/null -w '%{http_code}' "http://localhost:$PORT/checkout")
 [ "$RESULT" = "200" ] && rc=0 || rc=1
 # === end ===
 after_observe

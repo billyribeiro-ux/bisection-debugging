@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # supply-chain-bisect-npm.sh
 # Bisect across npm-registry publish times to find the date a package began
-# misbehaving. Uses the npm CLI's --before flag as a resolver only; the
-# eventual install is via pnpm to stay consistent with the rest of the project.
+# misbehaving. Resolves "latest as of DATE" from the registry's publish-time
+# metadata (npm view <pkg> time) — npm-the-CLI is used only as a resolver;
+# the eventual install is via pnpm to stay consistent with the project.
+# (npm also has `install --before=DATE`, but it resolves the HIGHEST SEMVER
+# published by then, which differs from most-recently-published when patch
+# releases are backported — for supply-chain work we want publish order.)
 #
 # USAGE:
 #   ./supply-chain-bisect-npm.sh <package> <good-date> <bad-date> "<predicate-cmd>"

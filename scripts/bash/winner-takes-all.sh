@@ -11,4 +11,7 @@ git rev-list --reverse last-known-bad..HEAD | parallel \
       echo "FOUND: {}"
       exit 0
     fi
+    exit 1    # REQUIRED: a bare failed `if` with no else exits 0, so the
+              # very first NON-matching job would also count as "success"
+              # and halt the whole run immediately.
   '

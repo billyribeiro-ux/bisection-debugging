@@ -10,10 +10,11 @@ cat > predicate.sh <<'EOF'
 set -uo pipefail
 SCHEMA="${SCHEMA:-schema.graphql}"
 [ -f "$SCHEMA" ] || exit 125
-# Exit 1 if BREAKING changes are present.
+# The CLI exits non-zero when breaking changes are detected — that IS the
+# predicate. (There's no --fail-on-breaking CLI flag; that name belongs to
+# the GitHub Action's inputs.)
 pnpm dlx @graphql-inspector/cli diff \
-  /tmp/schema.good.graphql "$SCHEMA" \
-  --fail-on-breaking
+  /tmp/schema.good.graphql "$SCHEMA"
 EOF
 chmod +x predicate.sh
 

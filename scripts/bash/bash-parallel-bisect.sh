@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bash-parallel-bisect.sh
-# Test both halves in parallel each round. ~2× wall-clock speedup, 2× compute.
-# Use only when each predicate call is independent and side-effect-free.
+# Race both halves each round: modest latency gain (decide at the first
+# FAILING finisher), 2× compute. Use only when each predicate call is
+# independent and side-effect-free.
 set -euo pipefail
 
 PRED="${1:?usage: $0 <predicate> <list-cmd>}"
@@ -35,7 +36,12 @@ while (( lo < hi )); do
   # Both finished. By the bisection invariant exactly one is bad.
   if (( rcL != 0 && rcU == 0 )); then hi=$mid
   elif (( rcL == 0 && rcU != 0 )); then lo=$((mid + 1))
-  else echo "Invariant broken at round $mid — both halves $((rcL==0?good:bad))/$((rcU==0?good:bad))"; exit 2
+  else
+    # NOT $(( rcL==0?good:bad )) — arithmetic expansion would treat good/bad
+    # as variable names and print 0/0.
+    vL=$([ "$rcL" -eq 0 ] && echo good || echo bad)
+    vU=$([ "$rcU" -eq 0 ] && echo good || echo bad)
+    echo "Invariant broken at round $mid — halves are $vL/$vU"; exit 2
   fi
 done
 echo "culprit: ${F[$lo]}"

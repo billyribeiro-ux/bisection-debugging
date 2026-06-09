@@ -12,11 +12,16 @@ const TOL_PIXELS = Number(process.env.TOL_PIXELS || 200);
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 }})).newPage();
 await page.goto(URL); await page.waitForLoadState('networkidle');
-const current = await page.screenshot({ fullPage: true });
+const current = await page.screenshot();   // fixed viewport — see baseline note
 await browser.close();
 
 const a = PNG.sync.read(fs.readFileSync('baseline.png'));
 const b = PNG.sync.read(current);
+if (a.width !== b.width || a.height !== b.height) {
+  // Dimensions differing IS a layout change — report "bad", don't crash.
+  console.log(`size changed: ${a.width}x${a.height} → ${b.width}x${b.height}`);
+  process.exit(1);
+}
 const diff = new PNG({ width: a.width, height: a.height });
 const changed = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1 });
 

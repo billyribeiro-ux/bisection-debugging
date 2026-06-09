@@ -5,6 +5,11 @@ set -euo pipefail
 PR_NUMBER="${1:?usage: bisect-squashed-pr.sh <pr-number>}"
 SQUASH_COMMIT="${2:?<squash-commit-sha>}"
 
+# Remember where we started: after `git bisect reset`, `git checkout -`
+# would return to the LAST checkout (possibly a detached bisect state),
+# not necessarily your branch.
+START_BRANCH="$(git symbolic-ref --short HEAD)"
+
 # 1) Most providers (GitHub, GitLab) keep the original PR branch reachable via
 #    a special ref. For GitHub:  refs/pull/<n>/head
 git fetch origin "refs/pull/$PR_NUMBER/head:bisect-pr-$PR_NUMBER"
@@ -22,12 +27,16 @@ git cherry-pick "$PR_BASE..$PR_TIP" || {
   exit 1
 }
 
-# 3) Now bisect inside the cherry-picked range.
+# 3) Now bisect inside the cherry-picked range. The trap guarantees the
+#    cleanup runs even if `git bisect run` fails under set -e.
+cleanup() {
+  git bisect reset 2>/dev/null || true
+  git checkout "$START_BRANCH"
+  git branch -D bisect-replay "bisect-pr-$PR_NUMBER" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 git bisect start
 git bisect bad HEAD            # bug present after the whole PR
 git bisect good "$PR_BASE"     # bug absent before the PR
 git bisect run ./bisect-predicate.sh
-
-git bisect reset
-git checkout -
-git branch -D bisect-replay bisect-pr-$PR_NUMBER

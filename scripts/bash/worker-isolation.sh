@@ -3,7 +3,7 @@
 # parametrize by worker ID, derive everything from it.
 
 parallel --jobs 4 '
-  WORKER_ID={#}
+  WORKER_ID={%}
   PORT=$((30000 + WORKER_ID))
   DB="bisect_w${WORKER_ID}"
   SCRATCH="/tmp/bisect-w${WORKER_ID}"

@@ -36,8 +36,11 @@ jobs:
             --workflow="Nightly E2E" --status success --limit 1 \
             --json headSha --jq '.[0].headSha')
           echo "good_sha=$GOOD_SHA" >> "$GITHUB_OUTPUT"
-          echo "bad_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "Bisecting $GOOD_SHA..${{ github.sha }}"
+          # In a workflow_run-triggered job, github.sha is the DEFAULT
+          # branch's tip at trigger time — commits may have landed after the
+          # nightly started. The failed run's actual commit is head_sha.
+          echo "bad_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "Bisecting $GOOD_SHA..${{ github.event.workflow_run.head_sha }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

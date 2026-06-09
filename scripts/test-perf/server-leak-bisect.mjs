@@ -22,8 +22,11 @@ async function runOne(subset) {
 
     (async () => {
       await sleep(1000); // let server boot
-      load = spawn('autocannon', ['-c', '50', '-d', '60', '-R', '500', 'http://localhost:3000'],
-                   { stdio: 'ignore' });
+      // Drive EVERY route in the subset — load against '/' alone would give
+      // the routes under test zero traffic, and nothing would ever leak.
+      load = subset.map(r =>
+        spawn('autocannon', ['-c', '10', '-d', '60', '-R', '100',
+                             `http://localhost:3000${r}`], { stdio: 'ignore' }));
 
       // Sample heap every 5s for 60s via /__health-extended? Simpler: poll RSS via /proc.
       for (let t = 0; t < 60; t += 5) {
@@ -35,11 +38,13 @@ async function runOne(subset) {
         } catch {}
       }
 
-      try { load.kill('SIGTERM'); } catch {}
+      for (const l of load) { try { l.kill('SIGTERM'); } catch {} }
       try { server.kill('SIGTERM'); } catch {}
 
       if (samples.length < 6) return reject(new Error('Not enough samples'));
-      const slope = (samples.at(-1) - samples[0]) / (samples.length * 5 / 60); // MB / min
+      // First-to-last span is (n-1) intervals of 5s, not n.
+      const elapsedMin = (samples.length - 1) * 5 / 60;
+      const slope = (samples.at(-1) - samples[0]) / elapsedMin; // MB / min
       resolve(slope);
     })().catch(reject);
   });

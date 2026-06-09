@@ -28,7 +28,11 @@ process.on('exit', () => fs.writeFileSync(file, orig));
 process.on('SIGINT', () => process.exit(130));
 
 function applyKeep(keep) {
-  const patched = orig.replace(target[0], `class="${keep.join(' ')}"`);
+  // Splice by match POSITION, not string replace: an identical earlier
+  // class="…" attribute would otherwise get rewritten instead of ours.
+  const patched = orig.slice(0, target.index)
+    + `class="${keep.join(' ')}"`
+    + orig.slice(target.index + target[0].length);
   fs.writeFileSync(file, patched);
 }
 

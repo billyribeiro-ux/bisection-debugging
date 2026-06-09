@@ -29,7 +29,7 @@ ddmin() {
       local subset=( "${S[@]:i:size}" )
       local complement=( "${S[@]:0:i}" "${S[@]:i+size}" )
       if reproduces "${subset[@]}"; then S=( "${subset[@]}" ); n=2; found=1; break
-      elif reproduces "${complement[@]}"; then S=( "${complement[@]}" ); n=$(( n - 1 )); found=1; break
+      elif reproduces "${complement[@]}"; then S=( "${complement[@]}" ); n=$(( n > 2 ? n - 1 : 2 )); found=1; break  # clamp: n=1 would make subset==S
       fi
     done
     (( found )) || { (( n >= ${#S[@]} )) && break; n=$(( n * 2 )); (( n > ${#S[@]} )) && n=${#S[@]}; }
