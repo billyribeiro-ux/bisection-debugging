@@ -16,7 +16,9 @@ eval "ls ${SAFE_ARGS[@]}"          # safe even though filenames have spaces
 # Recipe 3: Indirect reference — read a variable named after a SHA
 declare RESULT_a3f9c81="0"
 SHA="a3f9c81"
-echo "${(P)$:-RESULT_$SHA}"        # → "0"
+echo "${(P)${:-RESULT_$SHA}}"      # → "0"
+# Note the inner ${:-…}: it builds the NAME first, then (P) dereferences
+# it. The tempting ${(P)$:-RESULT_$SHA} expands $$ (the PID) instead.
 
 # Recipe 4: Convert array to comma-separated string for an SQL IN clause
 declare -a IDS=( 1 2 3 4 5 )
@@ -35,7 +37,9 @@ if (( $#PATH_PARTS != $#UNIQUE_PARTS )); then
   echo "PATH has duplicate entries"
 fi
 
-# Recipe 7: Escape a value for use in a regex
+# Recipe 7: Escape a value for use in a PATTERN match (==, not =~).
+# (b) escapes glob metacharacters only — '.' is NOT regex-escaped, so
+# using it to build an =~ ERE is unsafe ("1.2.3" would match "1x2x3").
 USER_INPUT='1.2.3 (test)'
-SAFE_RE="${(b)USER_INPUT}"
-[[ "$line" =~ $SAFE_RE ]] && echo match
+SAFE_PAT="${(b)USER_INPUT}"
+[[ "$line" == *$~SAFE_PAT* ]] && echo match

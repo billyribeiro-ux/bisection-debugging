@@ -29,4 +29,4 @@ bisect() {
 
 # Read newline-delimited input into an array via the (f) parameter flag.
 files=( ${(f)"$(git ls-files '*.svelte')"} )
-bisect "pnpm exec svelte-check --filter" $files
+bisect "./svelte-check-subset.sh" $files

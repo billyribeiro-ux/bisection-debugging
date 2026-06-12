@@ -5,7 +5,7 @@
 //
 // PRECONDITIONS:
 //   • A list of (name, oldVersion, newVersion) tuples. Build it from a diff
-//     of `pnpm.lock` between the last green commit and HEAD, or pipe in
+//     of `pnpm-lock.yaml` between the last green commit and HEAD, or pipe in
 //     `pnpm outdated --json` from before the update.
 //   • A predicate command (default: `pnpm build && pnpm test --run`).
 //
@@ -31,6 +31,10 @@ process.on('exit', () => {
   fs.writeFileSync(PKG, originalPkg);
   spawnSync('pnpm', ['install', '--silent'], { stdio: 'inherit' });
 });
+// 'exit' does NOT fire on an unhandled SIGINT/SIGTERM — without these,
+// Ctrl-C strands package.json with the overrides still applied.
+process.on('SIGINT',  () => process.exit(130));
+process.on('SIGTERM', () => process.exit(143));
 
 function withOverrides(pinNames) {
   const pkg = JSON.parse(originalPkg);

@@ -2,11 +2,11 @@
 # A grab-bag of Bash idioms that come up constantly in bisection scripts.
 
 # 1) Read a list of files NUL-separated (handles spaces, newlines in names).
-mapfile -d '' -t FILES < <(git ls-files -z '*.svelte')
+mapfile -d '' -t FILES < <(git ls-files -z '*.svelte')   # -d needs bash 4.4+
 
 # 2) Run a predicate against each file in parallel, fail-fast on first failure.
 printf '%s\0' "${FILES[@]}" | xargs -0 -n 1 -P 8 \
-  bash -c 'pnpm exec svelte-check --filter "$0" >/dev/null 2>&1 || { echo "FAIL: $0"; exit 1; }'
+  bash -c 'pnpm exec eslint "$0" >/dev/null 2>&1 || { echo "FAIL: $0"; exit 1; }'
 
 # 3) Compute a SHA of a set of files (for memoization keys).
 KEY=$(printf '%s\n' "${FILES[@]}" | sort | sha256sum | cut -c1-12)

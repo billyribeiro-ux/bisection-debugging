@@ -1,6 +1,6 @@
 # Bisection Debugging — Principal Engineer's Curriculum
 
-A **91-page curriculum** designed to take someone from "I've never coded
+A **95-page curriculum** designed to take someone from "I've never coded
 before" to the full L7+ principal-engineer mental model — including the
 hands-on craft of writing bisection predicates from scratch, with
 companion tools (pickaxe + git log -L), a practical 2026 AI-augmented
@@ -38,7 +38,7 @@ the `packageManager` field locks the exact pnpm version via corepack.
 ## What's in this repo
 
 ```
-index.html                 — open in any browser; the entire 34-page course
+index.html                 — open in any browser; the entire 95-page course
 scripts/                   — every code block in the course, extracted as a real file
 .github/workflows/         — auto-bisect.yml: GitHub Actions CI auto-bisection
 package.json               — wired build orchestration (see "Build commands" below)
@@ -51,9 +51,10 @@ verify-scripts.sh          — syntax-checks every script
 
 All operations are wired through `pnpm` scripts in `package.json` with
 explicit pre/post lifecycle composition. The `.npmrc` at the repo root sets
-`enable-pre-post-scripts=true` — pnpm's auto-fired pre/post hooks are
-disabled by default, and the curriculum's day-by-day page teaches why. See
-Part IX's "Building package.json from pnpm init to Production" and "The
+`enable-pre-post-scripts=true` explicitly — it has defaulted to true since
+pnpm 7, but pinning it makes the hook contract immune to ambient config
+(and pnpm 6 was opt-in, which is why stale advice claims hooks don't fire).
+See Part IX's "Building package.json from pnpm init to Production" and "The
 Build Orchestration Layer" pages.
 
 | Command          | What it does                                                                 |
@@ -81,7 +82,11 @@ debugging.
 manual halving by hand.
 
 **Part II — git bisect** · basics · automated `bisect run` · skips & flakes ·
-rebases / squash-merges / force-pushes.
+rebases / squash-merges / force-pushes · how git bisect actually works
+(the DAG weighting algorithm, `git rev-list --bisect/--bisect-vars/--bisect-all`,
+what skip really does, pick-your-own-midpoint) · industrial-scale bisection
+(`--no-checkout` + `BISECT_HEAD`, worktrees, monorepo pathspecs, partial
+clone + sparse checkout, submodules, content-addressed build caches).
 
 **Part III — Files & components** · binary file halving · Playwright + CDP
 heap-snapshot leak finder · Tailwind class bisection with pixel diffs.
@@ -98,7 +103,9 @@ perf budget predicate · long-running Node server leak detection.
 
 **Part VIII — Real-world** · GitHub Actions auto-bisect workflow ·
 multi-service version bisection · CSV / feature-flag / env bisection ·
-anti-patterns and when not to bisect.
+anti-patterns and when not to bisect · artifact bisection (bisect prebuilt
+CI builds instead of compiling — the mozregression / `bisect-builds.py` /
+cargo-bisect-rustc pattern, plus the two-phase nightlies→commits play).
 
 **Part IX — Advanced & Theoretical** · Shannon information-theoretic lower
 bound · Bayesian bisection under noise · Hierarchical Delta Debugging ·
@@ -123,7 +130,9 @@ improvement.
 working calculator) · real-world benchmark tables · the History Quality
 Index (HQI) — a 100-point scoring rubric for repo bisectability · the
 Predicate Hermeticity Score (PHS) — 70-point predicate quality rubric ·
-seven hard-won composite incident stories · the debugging-skill calibration
+seven hard-won composite incident stories · eight sourced field reports
+from the public record (Knight Capital, GitLab, Cloudflare, AWS S3,
+CrowdStrike, Mozilla, left-pad, Fastly) · the debugging-skill calibration
 rubric (L3–L7) for hiring & leveling · the anti-bisection patterns catalog
 (10 patterns) · a runnable three-hour game-day workshop · bisection across
 language ecosystems (Node, Python, Go, Rust, Java, Ruby, PHP, .NET, C/C++) ·

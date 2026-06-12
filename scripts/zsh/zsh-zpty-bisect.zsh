@@ -21,12 +21,15 @@ mem_after_lines() {
   for cmd in $lines; do
     zpty -w repl "$cmd"
   done
-  # Sentinel.
-  zpty -w repl 'console.log("__MEM__", process.memoryUsage().heapUsed)'
+  # Sentinel — built by CONCATENATION so the pty's echo of the typed
+  # command can't match the read pattern. With a literal "__MEM__" in the
+  # command, zpty -r would match the echoed command line first and awk
+  # would extract `process.memoryUsage().heapUsed)` instead of the number.
+  zpty -w repl 'console.log("__ME"+"M__", process.memoryUsage().heapUsed)'
   local out=""
-  zpty -r repl out '*__MEM__ *'
+  zpty -r repl out '*__MEM__ [0-9]*'
   zpty -d repl
-  print -r -- "$out" | awk '/__MEM__/ { print $NF; exit }'
+  print -r -- "$out" | awk '/__MEM__ [0-9]+/ { print $NF; exit }'
 }
 
 baseline=$(mem_after_lines)        # empty REPL baseline

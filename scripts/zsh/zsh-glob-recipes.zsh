@@ -11,16 +11,18 @@ risky=( **/*(W) )
 bloat=( dist/**/*(.Lm+1mw-1) )    # > 1MB and modified within the last week
 
 # Recipe 4: Bisect tests in dependency order (by mtime)
-tests_oldest_first=( **/*.test.ts(.om) )    # om = order by mtime
+tests_oldest_first=( **/*.test.ts(.Om) )    # Om = oldest first (om = newest!)
 
 # Recipe 5: Only files owned by current user (skip vendor dirs owned by root)
 mine=( **/*(.u${UID}) )
 
-# Recipe 6: Find symlinks that point to nonexistent targets
-broken=( **/*(@-) )
+# Recipe 6: Find symlinks that point to nonexistent targets.
+# (-@) = follow links, keep what is STILL a symlink → only the broken ones.
+# ((@-) would match every symlink — the trailing - toggles nothing.)
+broken=( **/*(-@) )
 
-# Recipe 7: Combine — large recent files modified by a specific person
-suspect=( **/*(.Lm+1mw-1u:alice:) )
+# Recipe 7: Combine — large recent files OWNED by a specific user
+suspect=( **/*(.Lm+1mw-1u:alice:) )   # u: filters by owner, not last editor
 
 # Recipe 8: Files matching pattern AND containing "deprecated" via (e:...)
 files=( **/*.ts(e:'grep -q deprecated $REPLY':) )

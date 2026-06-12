@@ -13,8 +13,13 @@ const CFG = './tsconfig.json';
 
 const original = fs.readFileSync(CFG, 'utf8');
 process.on('exit', () => fs.writeFileSync(CFG, original));
+process.on('SIGINT',  () => process.exit(130));   // 'exit' alone won't fire on Ctrl-C
+process.on('SIGTERM', () => process.exit(143));
 
 function apply(enabled) {
+  // NOTE: tsconfig.json is JSONC — comments and trailing commas are legal.
+  // JSON.parse will throw on them; strip comments first (or use a JSONC
+  // parser like jsonc-parser) if your config has any.
   const cfg = JSON.parse(original);
   cfg.compilerOptions = cfg.compilerOptions || {};
   // Reset every option in OPTIONS to false, then enable only `enabled`.

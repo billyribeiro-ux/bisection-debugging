@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -uo pipefail
 some_setup_command | tee setup.log | grep -q READY
-rc_setup="${PIPESTATUS[0]}"   # exit code of some_setup_command
-rc_tee="${PIPESTATUS[1]}"     # exit code of tee
-rc_grep="${PIPESTATUS[2]}"    # exit code of grep
+# Copy PIPESTATUS in ONE statement: every command — including the first
+# assignment below — overwrites it. Three sequential assignments would
+# read garbage from the second one on.
+ps=( "${PIPESTATUS[@]}" )
+rc_setup="${ps[0]}"   # exit code of some_setup_command
+rc_tee="${ps[1]}"     # exit code of tee
+rc_grep="${ps[2]}"    # exit code of grep
 
 if (( rc_setup != 0 )); then
   echo "setup failed (rc=$rc_setup) — skipping commit"

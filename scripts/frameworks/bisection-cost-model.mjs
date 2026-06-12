@@ -31,7 +31,7 @@ const engineerHr = wallSec / 3600;
 const dollars    = engineerHr * C_eng * W_idle;
 
 console.log(`N        = ${N} candidates`);
-console.log(`p        = ${p}   (k-of-k voting: k=${k}, effective p=${pEff(k,p).toExponential(2)})`);
+console.log(`p        = ${p}   (majority-of-k voting: k=${k}, effective p=${pEff(k,p).toExponential(2)})`);
 console.log(`Rounds   = ${rounds}   (lower bound was ${Math.ceil(Math.log2(N))})`);
 console.log(`Wall     = ${(wallSec / 60).toFixed(1)} min`);
 console.log(`Cost     = $${dollars.toFixed(0)}`);

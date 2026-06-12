@@ -36,8 +36,10 @@ git bisect start HEAD v2.3
 git bisect run ./bisect-predicate.sh
 
 # 2) Find which Svelte file fails `svelte-check`, in log(N) invocations.
+#    (svelte-check takes no file args; the subset wrapper scopes it via a
+#    generated tsconfig — see Part III.)
 ./scripts/file-bisect/find-leak-binary.sh \
-    "pnpm exec svelte-check --filter" "src/lib/**/*.svelte"
+    "./scripts/file-bisect/svelte-check-subset.sh" "src/lib/**/*.svelte"
 
 # 3) Find the test that pollutes global state.
 ./scripts/test-perf/flaky-test-bisect.sh tests/auth/session.test.ts

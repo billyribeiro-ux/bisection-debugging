@@ -7,9 +7,12 @@ SAMPLES="${SAMPLES:-20}"
 pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 || exit 125
 pnpm build >/dev/null 2>&1 || exit 125
 
-# Use hyperfine for warm-cache statistical perf measurement
-pnpm dlx hyperfine -m "$SAMPLES" --warmup 3 --export-json /tmp/perf.json \
-  -- "pnpm exec node dist/run-benchmark.mjs" >/dev/null
+# Use hyperfine for warm-cache statistical perf measurement.
+# hyperfine is a Rust binary (brew/apt/cargo install hyperfine) — it is
+# NOT on npm, so no pnpm dlx here.
+command -v hyperfine >/dev/null || exit 125
+hyperfine -m "$SAMPLES" --warmup 3 --export-json /tmp/perf.json \
+  "node dist/run-benchmark.mjs" >/dev/null
 
 p99=$(node -e "
   const d = JSON.parse(require('fs').readFileSync('/tmp/perf.json'));

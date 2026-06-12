@@ -3,7 +3,7 @@
 # Usage:
 #   source ./zsh-bisect.zsh
 #   files=( ${(f)"$(git ls-files '*.svelte')"} )
-#   check() { pnpm exec svelte-check --filter "$@" >/dev/null 2>&1; }
+#   check() { ./svelte-check-subset.sh "$@" >/dev/null 2>&1; }
 #   bisect_array files check
 
 bisect_array() {

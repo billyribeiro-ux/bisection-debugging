@@ -3,7 +3,9 @@
 # Source the candidate list from any command — git, find, etc.
 #
 # USAGE:
-#   ./bash-l2-mapfile.sh "git ls-files '*.svelte'" "pnpm exec svelte-check"
+#   ./bash-l2-mapfile.sh "git ls-files '*.svelte'" "./svelte-check-subset.sh"
+#   (the predicate receives the candidate files as arguments; see Part III
+#   for the svelte-check-subset.sh wrapper — svelte-check itself takes none)
 set -euo pipefail
 
 LIST_CMD="${1:?usage: $0 <list-cmd> <predicate>}"

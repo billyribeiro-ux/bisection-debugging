@@ -21,19 +21,21 @@ $TEST_CMD
 EOF
 chmod +x /tmp/bisect-script.sh
 
-# --regress=ice         → bisect ICEs
-# --regress=error       → bisect new compile errors (the common case)
-# --regress=success     → bisect commits that started PASSING
-# --regress=non-error   → bisect runtime regressions when build still succeeds
+# --regress chooses WHAT counts as "regressed" when no --script is given:
+#   --regress=ice       → an internal compiler error appears
+#   --regress=error     → the crate stops compiling (the common case)
+#   --regress=success   → the crate STARTS compiling (find a fix)
+#   --regress=non-ice / non-error → the inverses
+# With --script, keep the DEFAULT (--regress=error): script exit != 0 marks
+# the commit as regressed — which is exactly what a failing runtime test does.
 cargo bisect-rustc \
   --start "$GOOD" --end "$BAD" \
-  --regress=non-error \
   --script /tmp/bisect-script.sh \
   --preserve --preserve-target
 
-# Once you have a nightly, narrow to a single rustc commit:
+# Once you have a nightly, narrow to a single rustc merge commit
+# (cargo-bisect-rustc downloads the per-merge CI artifacts — no compiling):
 cargo bisect-rustc \
   --start "$(date -d "$BAD - 1 day" +%Y-%m-%d)" --end "$BAD" \
   --by-commit \
-  --regress=non-error \
   --script /tmp/bisect-script.sh

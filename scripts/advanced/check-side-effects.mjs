@@ -21,7 +21,7 @@ if (r.status !== 0) process.exit(125);
 
 const log = fs.readFileSync('/tmp/install.strace', 'utf8');
 const suspicious = [
-  /connect\(.*sin_port=htons\((?!443|80|22)[0-9]+\)/,  // non-HTTP outbound
+  /connect\(.*sin_port=htons\((?!(?:443|80|22)\))[0-9]+\)/,  // non-HTTP outbound
   /openat\(.*\/etc\/(shadow|passwd|sudoers)/,
   /openat\(.*\/\.ssh\//,
   /openat\(.*\/\.aws\//,

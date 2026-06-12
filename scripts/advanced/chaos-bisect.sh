@@ -13,8 +13,10 @@ THREADS=$(nproc)
 # Make sure baseline tools exist.
 command -v stress-ng >/dev/null || { echo "Need stress-ng"; exit 125; }
 
-# Apply contention while we test.
-stress-ng --cpu "$THREADS" --io 4 --vm 2 --vm-bytes 256M --timeout 60s &
+# Apply contention for the WHOLE test loop (100 runs × up to 5 s each);
+# --timeout 0 = run until we kill it via the trap. A short fixed timeout
+# would expire mid-loop and silently remove the contention.
+stress-ng --cpu "$THREADS" --io 4 --vm 2 --vm-bytes 256M --timeout 0 &
 STRESSOR=$!
 trap 'kill "$STRESSOR" 2>/dev/null || true' EXIT
 

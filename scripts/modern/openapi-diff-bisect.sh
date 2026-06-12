@@ -18,8 +18,9 @@ cat > predicate.sh <<'EOF'
 set -uo pipefail
 SPEC="${SPEC:-openapi.yaml}"
 [ -f "$SPEC" ] || exit 125
-# oasdiff returns nonzero if there are breaking changes.
-oasdiff breaking /tmp/openapi.good.yaml "$SPEC" --format text
+# --fail-on ERR is REQUIRED for a predicate: without it, oasdiff prints
+# the breaking changes but still exits 0, and the bisection learns nothing.
+oasdiff breaking /tmp/openapi.good.yaml "$SPEC" --format text --fail-on ERR
 EOF
 chmod +x predicate.sh
 

@@ -15,8 +15,12 @@ big=( src/lib/**/*.svelte(.Lk+50) )
 # Only files in directories whose name ends in /components/:
 comps=( src/lib/**/components/*.svelte(.) )
 
-# Sorted oldest-first, exclude tests, limit to first 200:
-candidates=( src/lib/**/*.svelte(.om^*.test.*[1,200]) )
+# Sorted oldest-first, exclude tests, limit to first 200.
+# Pattern EXCLUSION uses extendedglob's ~ on the pattern itself — it can't
+# go inside the qualifier parens (a ^ there negates qualifiers, not names).
+# And note the case: Om = oldest first; om = NEWEST first.
+setopt extendedglob
+candidates=( src/lib/**/*.svelte~*.test.*(.Om[1,200]) )
 
 # Files NOT containing 'TODO' (uses zsh's `e` qualifier with a code expr):
 clean=( src/lib/**/*.svelte(.e:'! grep -q TODO $REPLY':) )

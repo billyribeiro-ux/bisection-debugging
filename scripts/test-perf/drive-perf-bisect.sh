@@ -9,6 +9,9 @@ COMMAND="${4:-pnpm build}"
 
 export BUDGET_MS COMMAND
 
+# Trap, not a trailing command: under set -e a failed `git bisect run`
+# would otherwise abort before the reset and strand the repo mid-bisect.
+trap 'git bisect reset' EXIT
+
 git bisect start "$BAD" "$GOOD"
 git bisect run ./perf-bisect-predicate.sh | tee /tmp/perf-bisect.log
-git bisect reset

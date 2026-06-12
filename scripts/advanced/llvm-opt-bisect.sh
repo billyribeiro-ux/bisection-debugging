@@ -42,4 +42,7 @@ CFLAGS="-O2 -mllvm -opt-bisect-limit=$lo" $BUILD 2>/tmp/culprit.log >/dev/null
 PASS_NAME=$(awk -v n=$lo '/BISECT: running pass / { c++ } c==n { sub(/.*BISECT: running pass /, ""); print; exit }' /tmp/culprit.log)
 echo
 echo "Culprit pass #$lo: $PASS_NAME"
-echo "Disable just this pass with: -mllvm -opt-bisect-disable-pass=\"$PASS_NAME\""
+# Recent LLVM can disable a single pass by name (-opt-disable); on older
+# releases, look for that pass's own -disable-* flag, or report the bug
+# with the pass name and the IR before/after it.
+echo "Try disabling just this pass: -mllvm -opt-disable=\"$PASS_NAME\""

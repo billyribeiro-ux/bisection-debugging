@@ -30,10 +30,13 @@ bisect_array() {
     else
       hi=$mid
     fi
-    printf '\rround %d  lo=%d hi=%d  ' "$round" "$lo" "$hi"
+    printf '\rround %d  lo=%d hi=%d  ' "$round" "$lo" "$hi" >&2
   done
-  echo
-  echo "culprit: ${_arr[$lo]}"
+  # Progress goes to stderr ABOVE so that callers can capture the result:
+  #   CULPRIT=$(bisect_array FILES check)
+  # If progress went to stdout, the captured value would include the noise.
+  echo >&2
+  echo "culprit: ${_arr[$lo]}" >&2
   rm -f "$_state"
   trap - INT
   printf '%s' "${_arr[$lo]}"

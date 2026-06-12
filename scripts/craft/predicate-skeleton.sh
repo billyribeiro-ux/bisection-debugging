@@ -26,7 +26,8 @@ sleep 1   # let server bind
 
 # === 4. OBSERVE =======================================================
 # Capture the signal — the one thing that decides pass/fail.
-RESPONSE=$(curl -sf -m 5 -w '%{http_code}' http://localhost:3000/checkout || echo "fail")
+# (-o /dev/null matters: otherwise the body precedes the status code.)
+RESPONSE=$(curl -sf -o /dev/null -m 5 -w '%{http_code}' http://localhost:3000/checkout || echo "fail")
 
 # === 5. EXIT ==========================================================
 # Translate observation into git bisect's expected codes.

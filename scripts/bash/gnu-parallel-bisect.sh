@@ -15,6 +15,9 @@ git rev-list --reverse last-good..HEAD | parallel \
     rc=$?
     git worktree remove -f "/tmp/wt-$sha" 2>/dev/null
     echo "$sha:$rc"
+    exit $rc    # REQUIRED: --halt watches the job exit status; if the last
+                # command were the echo, every job would "succeed" and the
+                # halt condition could never fire.
   '
 
 cat /tmp/parallel.log    # see runtime per task

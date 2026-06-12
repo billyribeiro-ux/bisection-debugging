@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Bash auto-reaps zombies when it exits, but a long-running predicate that
-# spawns many backgrounds accumulates them. Explicit `wait` periodically clears.
+# Bash reaps terminated children continuously (its SIGCHLD handler), so
+# true zombies don't accumulate. What DOES accumulate: unread exit
+# statuses and jobs-table entries. Periodic `wait` collects the statuses
+# you still care about and keeps the bookkeeping bounded.
 
 declare -a CHILDREN=()
 for sha in "$@"; do

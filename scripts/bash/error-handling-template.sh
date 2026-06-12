@@ -5,9 +5,13 @@ shopt -s nullglob extglob lastpipe inherit_errexit
 (( BASH_VERSINFO[0] >= 5 )) || { echo "bash 5+ required"; exit 125; }
 
 err() {
-  local rc=$? line=$BASH_LINENO[0] cmd=$BASH_COMMAND
+  # Snapshot $? and PIPESTATUS in the FIRST statement (they're volatile),
+  # and note the braces: $BASH_LINENO[0] without ${…} would expand to
+  # something like "42[0]".
+  local rc=$? ps_copy="${PIPESTATUS[*]:-}"
+  local line=${BASH_LINENO[0]} cmd=$BASH_COMMAND
   printf 'PREDICATE ERROR\n  file: %s\n  line: %s\n  cmd:  %s\n  rc:   %s\n  PIPESTATUS: %s\n' \
-    "$BASH_SOURCE" "$line" "$cmd" "$rc" "${PIPESTATUS[*]:-}" >&2
+    "$BASH_SOURCE" "$line" "$cmd" "$rc" "$ps_copy" >&2
 }
 trap err ERR
 

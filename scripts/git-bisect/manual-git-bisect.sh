@@ -19,7 +19,7 @@ git bisect good
 git bisect bad
 #    Git checks out the next midpoint and repeats.
 
-# 5. Repeat steps 3–4 until git tells you:
+# 5. Repeat step 4 until git tells you:
 #   a1b2c3d is the first bad commit
 #   commit a1b2c3d
 #   Author: someone

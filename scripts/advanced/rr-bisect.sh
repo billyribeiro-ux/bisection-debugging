@@ -17,16 +17,33 @@ for i in {1..50}; do
 done
 [ -z "${SAVED:-}" ] && { echo "Could not reproduce in 50 chaos-mode runs."; exit 1; }
 
-# 2) Build a deterministic predicate: replay the trace, exit with prog's status.
-cat > /tmp/replay-predicate.sh <<EOF
-#!/usr/bin/env bash
-rr replay "$SAVED" -a 2>/dev/null >/dev/null
-EOF
-chmod +x /tmp/replay-predicate.sh
+# 2) That trace is your DEBUGGING artifact: replay it forever, byte-exact,
+#    and reverse-execute through it (next section). It is NOT a bisection
+#    predicate — replaying re-runs the RECORDED binary; checking out other
+#    commits changes nothing about a replay.
 
-# 3) Now the bug is deterministic — bisect git history with `git bisect run`.
-echo "Starting git bisect against the recorded trace."
+# 3) To bisect commits, the predicate RE-RECORDS at every step: rebuild,
+#    hammer under chaos mode, report bad if any run bites. Chaos mode is
+#    what makes the per-commit repro probability high enough to vote on.
+cat > /tmp/rr-predicate.sh <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+make -s build || exit 125            # can't build → can't judge
+for i in {1..30}; do
+  if ! rr record --chaos -o "/tmp/rr-bisect-run" ./prog --selftest \
+       >/dev/null 2>&1; then
+    exit 1                           # captured a failing run AT THIS COMMIT
+  fi
+  rm -rf /tmp/rr-bisect-run          # passing traces are disposable
+done
+exit 0
+EOF
+chmod +x /tmp/rr-predicate.sh
+
+echo "Starting git bisect with a re-record-per-commit chaos predicate."
 LAST_GOOD="${LAST_GOOD:?set LAST_GOOD to the last-known-good SHA}"
 git bisect start HEAD "$LAST_GOOD"
-git bisect run /tmp/replay-predicate.sh
+git bisect run /tmp/rr-predicate.sh
 git bisect reset
+# Bonus: when bisect stops, /tmp/rr-bisect-run holds a recording of the
+# CULPRIT COMMIT failing — reverse-debug it immediately (next section).

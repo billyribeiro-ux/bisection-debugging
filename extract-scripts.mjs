@@ -35,6 +35,14 @@ const CATEGORY = {
   'bisect-squashed-pr.sh':       'git-bisect',
   'bisect-survive-force-push.sh':'git-bisect',
   'bisect-reflog-rescue.sh':     'git-bisect',
+  // Part II — internals & industrial scale (II.5, II.6)
+  'rev-list-bisect.sh':          'git-bisect',
+  'cheapest-midpoint.sh':        'git-bisect',
+  'bisect-no-checkout.sh':       'git-bisect',
+  'bisect-in-worktree.sh':       'git-bisect',
+  'bisect-pathspec.sh':          'git-bisect',
+  'blobless-clone-bisect.sh':    'git-bisect',
+  'submodule-predicate.sh':      'git-bisect',
 
   // Part III — File / module
   'find-leak-binary.sh':         'file-bisect',
@@ -148,6 +156,11 @@ const CATEGORY = {
   'flag-ddmin.mjs':              'ci',
   'bisect-env.sh':               'ci',
   'verify-culprit.sh':           'ci',
+  // Part VIII — artifact bisection (VIII.5)
+  'artifact-bisect-predicate.sh':'ci',
+  'mozregression-session.sh':    'ci',
+  'two-phase-bisect.sh':         'ci',
+  'svelte-check-subset.sh':      'file-bisect',
 
   // Part IX — Advanced & theoretical
   'channel-capacity.md':         'advanced',
@@ -334,6 +347,9 @@ const SKIP_NAMES = new Set([
 
   // Part XII — illustrative regex from incident report
   'the-regex.txt',
+
+  // Part II — illustrative DAG-weight walkthrough (not a tool)
+  'weight-walkthrough.txt',
 ]);
 // Anything matching one of these patterns is also illustrative-only.
 const SKIP_PATTERNS = [
